@@ -1,6 +1,7 @@
 use std::sync::{Arc, Mutex};
 use crate::page::Page;
-use chromiumoxide_cdp::cdp::browser_protocol::page::CreateIsolatedWorldParams;
+use crate::profiles::GhostProfile;
+use chromiumoxide_cdp::cdp::browser_protocol::page::{CreateIsolatedWorldParams, AddScriptToEvaluateOnNewDocumentParams};
 use chromiumoxide_cdp::cdp::browser_protocol::input::{
     DispatchKeyEventParams, DispatchKeyEventType,
 };
@@ -38,6 +39,38 @@ impl GhostPage {
     /// Access the underlying Page for standard operations.
     pub fn inner(&self) -> &Page {
         &self.inner
+    }
+
+    /// Apply a GhostProfile to this page in one clean call.
+    /// 
+    /// This method:
+    /// 1. Sets the User-Agent HTTP header
+    /// 2. Injects the profile's bootstrap script for JS-level spoofing
+    /// 
+    /// **IMPORTANT:** Call this BEFORE navigating to the target site.
+    /// 
+    /// # Example
+    /// ```rust
+    /// let profile = GhostProfile::windows().build();
+    /// let page = browser.new_page("about:blank").await?;
+    /// let ghost = GhostPage::new(page);
+    /// ghost.apply_profile(&profile).await?;
+    /// ghost.inner().goto("https://example.com").await?;
+    /// ```
+    pub async fn apply_profile(&self, profile: &GhostProfile) -> Result<()> {
+        // 1. Set the HTTP User-Agent header
+        self.inner.set_user_agent(&profile.user_agent()).await
+            .map_err(|e| anyhow!("{}", e))?;
+        
+        // 2. Inject the bootstrap script to run on every new document
+        self.inner.execute(AddScriptToEvaluateOnNewDocumentParams {
+            source: profile.bootstrap_script(),
+            world_name: None,
+            include_command_line_api: None,
+            run_immediately: None,
+        }).await.map_err(|e| anyhow!("{}", e))?;
+        
+        Ok(())
     }
 
     /// **THE REBROWSER METHOD: Absolute Stealth Execution**

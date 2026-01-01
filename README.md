@@ -39,29 +39,39 @@ Ghostoxide includes a native physics-based input engine to avoid synthetic inter
 
 ```rust
 use ghostoxide::{Browser, BrowserConfig, GhostPage, GhostProfile};
+use futures::StreamExt;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    // 1. Initialize with a consistent Windows profile
+    // 1. Create a fingerprint profile
     let profile = GhostProfile::windows().build();
     
+    // 2. Launch browser
     let (browser, mut handler) = Browser::launch(
-        BrowserConfig::builder()
-            .with_profile(profile)
-            .build()?
+        BrowserConfig::builder().build()?
     ).await?;
 
-    // 2. Wrap the standard Page in a GhostPage for interaction utilities
-    let page = browser.new_page("https://example.com").await?;
+    tokio::spawn(async move {
+        while let Some(_) = handler.next().await {}
+    });
+
+    // 3. Create page and wrap in GhostPage
+    let page = browser.new_page("about:blank").await?;
     let ghost = GhostPage::new(page);
 
-    // 3. Use hardened interaction methods
-    ghost.move_mouse_human(400, 300).await?;
+    // 4. Apply profile (sets UA + injects stealth scripts) - BEFORE navigation
+    ghost.apply_profile(&profile).await?;
+
+    // 5. Navigate to target
+    ghost.inner().goto("https://example.com").await?;
+
+    // 6. Use human-like interaction methods
+    ghost.move_mouse_human(400.0, 300.0).await?;
+    ghost.click_human(500.0, 400.0).await?;
     ghost.type_text("Search query").await?;
 
     Ok(())
 }
-
 ```
 
 ## Acknowledgements
