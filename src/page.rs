@@ -86,7 +86,8 @@ impl Page {
                         platform: "Windows"
                     })
                 });
-            "#.to_string(),
+            "#
+            .to_string(),
             world_name: None,
             include_command_line_api: None,
             run_immediately: None,
@@ -107,7 +108,7 @@ impl Page {
     }
 
     /// **Hardware Harmony**: Establishes a consistent Windows/NVIDIA identity.
-    /// 
+    ///
     /// Fixes the "Platform Chimera" issue where User-Agent says Windows but
     /// navigator.platform says MacIntel. This is a critical anti-detection fix.
     async fn hide_hardware_harmony(&self) -> Result<(), CdpError> {
@@ -128,7 +129,8 @@ impl Page {
                     get: () => 8,
                     configurable: true
                 });
-            "#.to_string(),
+            "#
+            .to_string(),
             world_name: None,
             include_command_line_api: None,
             run_immediately: None,
@@ -184,7 +186,7 @@ impl Page {
 
     /// Spoofs video codec support (H.264/AAC) - critical for Turnstile/DataDome
     async fn hide_codecs(&self) -> Result<(), CdpError> {
-         self.execute(AddScriptToEvaluateOnNewDocumentParams {
+        self.execute(AddScriptToEvaluateOnNewDocumentParams {
             source: r#"
                 const canPlayType = HTMLMediaElement.prototype.canPlayType;
                 HTMLMediaElement.prototype.canPlayType = function(type) {
@@ -198,7 +200,8 @@ impl Page {
                     if (type === 'video/x-m4v') return 'probably';
                     return canPlayType.apply(this, arguments);
                 };
-            "#.to_string(),
+            "#
+            .to_string(),
             world_name: None,
             include_command_line_api: None,
             run_immediately: None,
@@ -1455,7 +1458,7 @@ impl ScreenshotParams {
                 .cdp_params
                 .format
                 .as_ref()
-                .is_none_or(|f| f == &CaptureScreenshotFormat::Png)
+                .map_or(true, |f| f == &CaptureScreenshotFormat::Png)
     }
 }
 

@@ -474,7 +474,7 @@ impl ChaserPage {
         let pos = { *self.mouse_pos.lock().unwrap() };
 
         // Number of scroll steps (more steps = smoother)
-        let steps = (delta_y.abs() / 50).max(3).min(15) as usize;
+        let steps = (delta_y.abs() / 50).clamp(3, 15) as usize;
         let mut remaining = delta_y;
 
         for i in 0..steps {

@@ -1,7 +1,7 @@
-use chaser-oxide::{Browser, BrowserConfig, ChaserPage};
+use anyhow::Result;
+use chaser_oxide::{Browser, BrowserConfig, ChaserPage};
 use futures::StreamExt;
 use std::time::Duration;
-use anyhow::Result;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -10,12 +10,11 @@ async fn main() -> Result<()> {
         BrowserConfig::builder()
             .viewport(None)
             .build()
-            .map_err(|e| anyhow::anyhow!(e))?
-    ).await?;
+            .map_err(|e| anyhow::anyhow!(e))?,
+    )
+    .await?;
 
-    tokio::spawn(async move {
-        while let Some(_) = handler.next().await {}
-    });
+    tokio::spawn(async move { while let Some(_) = handler.next().await {} });
 
     // CRITICAL: Create page with about:blank FIRST
     println!("Creating page...");
@@ -54,10 +53,13 @@ async fn main() -> Result<()> {
     println!("\nWaiting for page to render...");
     tokio::time::sleep(Duration::from_secs(5)).await;
 
-    chaser.inner().save_screenshot(
-        chaser-oxide::page::ScreenshotParams::builder().build(),
-        "stealth_test.png"
-    ).await?;
+    chaser
+        .inner()
+        .save_screenshot(
+            chaser - oxide::page::ScreenshotParams::builder().build(),
+            "stealth_test.png",
+        )
+        .await?;
     println!("Screenshot saved to stealth_test.png");
 
     println!("\nBrowser will close in 5 seconds...");

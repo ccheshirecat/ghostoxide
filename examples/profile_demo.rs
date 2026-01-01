@@ -3,10 +3,10 @@
 //! Shows how to create customized browser fingerprint profiles
 //! with the ergonomic builder pattern.
 
-use chaser-oxide::{Browser, BrowserConfig, ChaserPage, ChaserProfile, Gpu};
+use anyhow::Result;
+use chaser_oxide::{Browser, BrowserConfig, ChaserPage, ChaserProfile, Gpu};
 use futures::StreamExt;
 use std::time::Duration;
-use anyhow::Result;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -52,12 +52,11 @@ async fn main() -> Result<()> {
         BrowserConfig::builder()
             .viewport(None)
             .build()
-            .map_err(|e| anyhow::anyhow!(e))?
-    ).await?;
+            .map_err(|e| anyhow::anyhow!(e))?,
+    )
+    .await?;
 
-    tokio::spawn(async move {
-        while let Some(_) = handler.next().await {}
-    });
+    tokio::spawn(async move { while let Some(_) = handler.next().await {} });
 
     // Create page with stealth
     let page = browser.new_page("about:blank").await?;

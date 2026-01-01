@@ -151,7 +151,8 @@ impl Default for ChaserProfile {
 }
 
 impl ChaserProfile {
-    /// Create a new profile with the specified OS
+    /// Create a new profile builder with the specified OS
+    #[allow(clippy::new_ret_no_self)]
     pub fn new(os: Os) -> ChaserProfileBuilder {
         ChaserProfileBuilder {
             os,
