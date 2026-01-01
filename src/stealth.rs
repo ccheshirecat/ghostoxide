@@ -1,29 +1,29 @@
 //! Stealth profile system for customizable browser fingerprints.
-//! 
+//!
 //! This module provides a trait-based system for defining browser "personalities"
 //! that can bypass anti-bot detection. The community can contribute new profiles
 //! as Chrome versions and GPU models evolve.
 
 /// A trait for defining a consistent browser fingerprint profile.
-/// 
+///
 /// Implementors define all the values that make up a coherent browser identity.
-/// The key insight is that all values must be **internally consistent** - 
+/// The key insight is that all values must be **internally consistent** -
 /// a Windows User-Agent with a MacOS platform is immediately flagged as suspicious.
-/// 
+///
 /// # Example
-/// 
+///
 /// ```rust
-/// use ghostoxide::stealth::StealthProfile;
-/// 
+/// use chaser-oxide::stealth::StealthProfile;
+///
 /// struct LinuxChromeProfile;
-/// 
+///
 /// impl StealthProfile for LinuxChromeProfile {
 ///     fn user_agent(&self) -> &str {
 ///         "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/129.0.0.0"
 ///     }
 ///     fn platform(&self) -> &str { "Linux x86_64" }
 ///     fn webgl_vendor(&self) -> &str { "Google Inc. (Intel)" }
-///     fn webgl_renderer(&self) -> &str { 
+///     fn webgl_renderer(&self) -> &str {
 ///         "ANGLE (Intel, Intel UHD Graphics 630 Direct3D11)"
 ///     }
 ///     fn hardware_concurrency(&self) -> u32 { 4 }
@@ -33,22 +33,22 @@
 pub trait StealthProfile: Send + Sync {
     /// The User-Agent string (must match platform/hardware)
     fn user_agent(&self) -> &str;
-    
+
     /// The `navigator.platform` value (e.g., "Win32", "MacIntel", "Linux x86_64")
     fn platform(&self) -> &str;
-    
+
     /// The WebGL UNMASKED_VENDOR_WEBGL value
     fn webgl_vendor(&self) -> &str;
-    
+
     /// The WebGL UNMASKED_RENDERER_WEBGL value
     fn webgl_renderer(&self) -> &str;
-    
+
     /// The `navigator.hardwareConcurrency` value (CPU threads)
     fn hardware_concurrency(&self) -> u32;
-    
+
     /// The `navigator.deviceMemory` value (RAM in GB)
     fn device_memory(&self) -> u32;
-    
+
     /// Client hints brands array
     fn client_hints_brands(&self) -> Vec<(&str, &str)> {
         vec![
@@ -57,34 +57,35 @@ pub trait StealthProfile: Send + Sync {
             ("Not=A?Brand", "24"),
         ]
     }
-    
+
     /// Client hints platform
     fn client_hints_platform(&self) -> &str {
         "Windows"
     }
-    
+
     /// Generate the complete JavaScript bootstrap script
     fn bootstrap_script(&self) -> String {
-        format!(r#"
-            // === GHOSTOXIDE HARDWARE HARMONY ===
+        format!(
+            r#"
+            // === chaser-oxide HARDWARE HARMONY ===
             // Profile: {ua}
-            
+
             // 1. Platform alignment
-            Object.defineProperty(navigator, 'platform', {{ 
+            Object.defineProperty(navigator, 'platform', {{
                 get: () => '{platform}',
                 configurable: true
             }});
-            
+
             // 2. Hardware specs
-            Object.defineProperty(navigator, 'hardwareConcurrency', {{ 
+            Object.defineProperty(navigator, 'hardwareConcurrency', {{
                 get: () => {cores},
-                configurable: true 
+                configurable: true
             }});
-            Object.defineProperty(navigator, 'deviceMemory', {{ 
+            Object.defineProperty(navigator, 'deviceMemory', {{
                 get: () => {memory},
                 configurable: true
             }});
-            
+
             // 3. WebGL spoofing (both contexts)
             const spoofWebGL = (proto) => {{
                 const getParameter = proto.getParameter;
@@ -98,7 +99,7 @@ pub trait StealthProfile: Send + Sync {
             if (typeof WebGL2RenderingContext !== 'undefined') {{
                 spoofWebGL(WebGL2RenderingContext.prototype);
             }}
-            
+
             // 4. Client Hints
             Object.defineProperty(navigator, 'userAgentData', {{
                 get: () => ({{
@@ -107,7 +108,7 @@ pub trait StealthProfile: Send + Sync {
                     platform: "{hints_platform}"
                 }})
             }});
-            
+
             // 5. Video codecs (H.264/AAC)
             const canPlayType = HTMLMediaElement.prototype.canPlayType;
             HTMLMediaElement.prototype.canPlayType = function(type) {{
@@ -117,10 +118,10 @@ pub trait StealthProfile: Send + Sync {
                 if (type === 'audio/mp4') return 'probably';
                 return canPlayType.apply(this, arguments);
             }};
-            
+
             // 6. WebDriver removal
             delete Object.getPrototypeOf(navigator).webdriver;
-            
+
             // 7. window.chrome
             window.chrome = {{ runtime: {{}} }};
         "#,
@@ -130,7 +131,8 @@ pub trait StealthProfile: Send + Sync {
             memory = self.device_memory(),
             webgl_vendor = self.webgl_vendor(),
             webgl_renderer = self.webgl_renderer(),
-            brands = self.client_hints_brands()
+            brands = self
+                .client_hints_brands()
                 .iter()
                 .map(|(b, v)| format!(r#"{{ brand: "{}", version: "{}" }}"#, b, v))
                 .collect::<Vec<_>>()
@@ -141,7 +143,7 @@ pub trait StealthProfile: Send + Sync {
 }
 
 /// The default "Windows Gamer" profile - high trust, common configuration.
-/// 
+///
 /// This profile represents a typical Windows 10/11 user with an NVIDIA RTX GPU,
 /// which is one of the most common and trusted browser configurations globally.
 #[derive(Debug, Clone, Default)]
@@ -151,23 +153,23 @@ impl StealthProfile for WindowsNvidiaProfile {
     fn user_agent(&self) -> &str {
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36"
     }
-    
+
     fn platform(&self) -> &str {
         "Win32"
     }
-    
+
     fn webgl_vendor(&self) -> &str {
         "Google Inc. (NVIDIA)"
     }
-    
+
     fn webgl_renderer(&self) -> &str {
         "ANGLE (NVIDIA, NVIDIA GeForce RTX 3080 Direct3D11 vs_5_0 ps_5_0)"
     }
-    
+
     fn hardware_concurrency(&self) -> u32 {
         8
     }
-    
+
     fn device_memory(&self) -> u32 {
         8
     }
@@ -181,27 +183,27 @@ impl StealthProfile for MacOSProfile {
     fn user_agent(&self) -> &str {
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36"
     }
-    
+
     fn platform(&self) -> &str {
         "MacIntel"
     }
-    
+
     fn webgl_vendor(&self) -> &str {
         "Google Inc. (Apple)"
     }
-    
+
     fn webgl_renderer(&self) -> &str {
         "ANGLE (Apple, Apple M1 Pro, OpenGL 4.1)"
     }
-    
+
     fn hardware_concurrency(&self) -> u32 {
         10
     }
-    
+
     fn device_memory(&self) -> u32 {
         16
     }
-    
+
     fn client_hints_platform(&self) -> &str {
         "macOS"
     }
@@ -215,27 +217,27 @@ impl StealthProfile for LinuxProfile {
     fn user_agent(&self) -> &str {
         "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36"
     }
-    
+
     fn platform(&self) -> &str {
         "Linux x86_64"
     }
-    
+
     fn webgl_vendor(&self) -> &str {
         "Google Inc. (NVIDIA Corporation)"
     }
-    
+
     fn webgl_renderer(&self) -> &str {
         "NVIDIA GeForce GTX 1080/PCIe/SSE2"
     }
-    
+
     fn hardware_concurrency(&self) -> u32 {
         8
     }
-    
+
     fn device_memory(&self) -> u32 {
         16
     }
-    
+
     fn client_hints_platform(&self) -> &str {
         "Linux"
     }

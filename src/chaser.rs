@@ -1,37 +1,48 @@
-use std::sync::{Arc, Mutex};
 use crate::page::Page;
-use crate::profiles::GhostProfile;
-use chromiumoxide_cdp::cdp::browser_protocol::page::{CreateIsolatedWorldParams, AddScriptToEvaluateOnNewDocumentParams};
+use crate::profiles::ChaserProfile;
+use anyhow::{anyhow, Result};
+use base64::{engine::general_purpose::STANDARD, Engine};
+use chromiumoxide_cdp::cdp::browser_protocol::fetch::{
+    ContinueRequestParams, DisableParams as FetchDisableParams, EnableParams as FetchEnableParams,
+    FulfillRequestParams, HeaderEntry, RequestPattern,
+};
 use chromiumoxide_cdp::cdp::browser_protocol::input::{
     DispatchKeyEventParams, DispatchKeyEventType,
 };
+use chromiumoxide_cdp::cdp::browser_protocol::network::ResourceType;
+use chromiumoxide_cdp::cdp::browser_protocol::page::{
+    AddScriptToEvaluateOnNewDocumentParams, CreateIsolatedWorldParams,
+};
 use chromiumoxide_cdp::cdp::js_protocol::runtime::EvaluateParams;
-use serde_json::Value;
-use anyhow::{anyhow, Result};
 use rand::Rng;
+use serde_json::Value;
+use std::sync::{Arc, Mutex};
 
 #[derive(Debug, Clone, Copy)]
-pub struct Point { pub x: f64, pub y: f64 }
+pub struct Point {
+    pub x: f64,
+    pub y: f64,
+}
 
 /// A wrapper around `Page` that provides **absolute stealth** execution and human-like input simulation.
-/// 
-/// `GhostPage` offers:
+///
+/// `ChaserPage` offers:
 /// - **Zero-footprint JavaScript execution** via `Page.createIsolatedWorld` (never touches Runtime domain)
 /// - Bezier curve mouse movements with jitter and overshoot
 /// - Realistic keyboard input with randomized delays
-/// 
+///
 /// This implementation matches the Rebrowser "Protocol Hijack" method exactly.
 #[derive(Clone, Debug)]
-pub struct GhostPage {
+pub struct ChaserPage {
     inner: Page,
     mouse_pos: Arc<Mutex<Point>>,
 }
 
-impl GhostPage {
-    /// Create a new GhostPage wrapping the given Page.
+impl ChaserPage {
+    /// Create a new ChaserPage wrapping the given Page.
     pub fn new(inner: Page) -> Self {
-        Self { 
-            inner, 
+        Self {
+            inner,
             mouse_pos: Arc::new(Mutex::new(Point { x: 0.0, y: 0.0 })),
         }
     }
@@ -41,63 +52,197 @@ impl GhostPage {
         &self.inner
     }
 
-    /// Apply a GhostProfile to this page in one clean call.
-    /// 
+    /// Apply a ChaserProfile to this page in one clean call.
+    ///
     /// This method:
     /// 1. Sets the User-Agent HTTP header
     /// 2. Injects the profile's bootstrap script for JS-level spoofing
-    /// 
+    ///
     /// **IMPORTANT:** Call this BEFORE navigating to the target site.
-    /// 
+    ///
     /// # Example
     /// ```rust
-    /// let profile = GhostProfile::windows().build();
+    /// let profile = ChaserProfile::windows().build();
     /// let page = browser.new_page("about:blank").await?;
-    /// let ghost = GhostPage::new(page);
-    /// ghost.apply_profile(&profile).await?;
-    /// ghost.inner().goto("https://example.com").await?;
+    /// let chaser = ChaserPage::new(page);
+    /// chaser.apply_profile(&profile).await?;
+    /// chaser.inner().goto("https://example.com").await?;
     /// ```
-    pub async fn apply_profile(&self, profile: &GhostProfile) -> Result<()> {
+    pub async fn apply_profile(&self, profile: &ChaserProfile) -> Result<()> {
         // 1. Set the HTTP User-Agent header
-        self.inner.set_user_agent(&profile.user_agent()).await
+        self.inner
+            .set_user_agent(&profile.user_agent())
+            .await
             .map_err(|e| anyhow!("{}", e))?;
-        
+
         // 2. Inject the bootstrap script to run on every new document
-        self.inner.execute(AddScriptToEvaluateOnNewDocumentParams {
-            source: profile.bootstrap_script(),
-            world_name: None,
-            include_command_line_api: None,
-            run_immediately: None,
-        }).await.map_err(|e| anyhow!("{}", e))?;
-        
+        self.inner
+            .execute(AddScriptToEvaluateOnNewDocumentParams {
+                source: profile.bootstrap_script(),
+                world_name: None,
+                include_command_line_api: None,
+                run_immediately: None,
+            })
+            .await
+            .map_err(|e| anyhow!("{}", e))?;
+
+        Ok(())
+    }
+
+    // ========== REQUEST INTERCEPTION API ==========
+
+    /// Enable request interception for specific URL patterns.
+    ///
+    /// This uses the Fetch domain to intercept requests before they are sent.
+    /// After enabling, use `fulfill_request` or `continue_request` to handle
+    /// intercepted requests.
+    ///
+    /// # Arguments
+    /// * `url_pattern` - Glob pattern to match URLs (e.g., "*", "https://example.com/*")
+    /// * `resource_type` - Optional resource type filter (Document, Script, etc.)
+    ///
+    /// # Example
+    /// ```rust
+    /// // Intercept all document requests
+    /// chaser.enable_request_interception("*", Some(ResourceType::Document)).await?;
+    /// ```
+    pub async fn enable_request_interception(
+        &self,
+        url_pattern: &str,
+        resource_type: Option<ResourceType>,
+    ) -> Result<()> {
+        let mut pattern_builder = RequestPattern::builder().url_pattern(url_pattern);
+        if let Some(rt) = resource_type {
+            pattern_builder = pattern_builder.resource_type(rt);
+        }
+
+        self.inner
+            .execute(
+                FetchEnableParams::builder()
+                    .handle_auth_requests(false)
+                    .pattern(pattern_builder.build())
+                    .build(),
+            )
+            .await
+            .map_err(|e| anyhow!("{}", e))?;
+
+        Ok(())
+    }
+
+    /// Disable request interception.
+    pub async fn disable_request_interception(&self) -> Result<()> {
+        self.inner
+            .execute(FetchDisableParams::default())
+            .await
+            .map_err(|e| anyhow!("{}", e))?;
+        Ok(())
+    }
+
+    /// Fulfill an intercepted request with custom HTML content.
+    ///
+    /// This is useful for Turnstile/captcha solving where you want to
+    /// serve a minimal page that only loads the challenge widget.
+    ///
+    /// # Arguments
+    /// * `request_id` - The request ID from the EventRequestPaused event
+    /// * `html` - The HTML content to serve
+    /// * `status_code` - HTTP status code (usually 200)
+    ///
+    /// # Example
+    /// ```rust
+    /// let fake_html = r#"
+    ///     <!DOCTYPE html>
+    ///     <html>
+    ///     <head>
+    ///         <script src="https://challenges.cloudflare.com/turnstile/v0/api.js"></script>
+    ///     </head>
+    ///     <body>
+    ///         <div class="cf-turnstile" data-sitekey="your-sitekey"></div>
+    ///     </body>
+    ///     </html>
+    /// "#;
+    /// chaser.fulfill_request_html(request_id, fake_html, 200).await?;
+    /// ```
+    pub async fn fulfill_request_html(
+        &self,
+        request_id: impl Into<String>,
+        html: &str,
+        status_code: i64,
+    ) -> Result<()> {
+        use chromiumoxide_cdp::cdp::browser_protocol::fetch::RequestId;
+
+        let body_base64 = STANDARD.encode(html);
+
+        self.inner
+            .execute(
+                FulfillRequestParams::builder()
+                    .request_id(RequestId::from(request_id.into()))
+                    .response_code(status_code)
+                    .body(body_base64)
+                    .response_header(HeaderEntry {
+                        name: "content-type".to_string(),
+                        value: "text/html; charset=utf-8".to_string(),
+                    })
+                    .build()
+                    .map_err(|e| anyhow!("{}", e))?,
+            )
+            .await
+            .map_err(|e| anyhow!("{}", e))?;
+
+        Ok(())
+    }
+
+    /// Continue an intercepted request without modification.
+    ///
+    /// Use this when you intercept a request but decide not to modify it.
+    pub async fn continue_request(&self, request_id: impl Into<String>) -> Result<()> {
+        use chromiumoxide_cdp::cdp::browser_protocol::fetch::RequestId;
+
+        self.inner
+            .execute(
+                ContinueRequestParams::builder()
+                    .request_id(RequestId::from(request_id.into()))
+                    .build()
+                    .map_err(|e| anyhow!("{}", e))?,
+            )
+            .await
+            .map_err(|e| anyhow!("{}", e))?;
+
         Ok(())
     }
 
     /// **THE REBROWSER METHOD: Absolute Stealth Execution**
-    /// 
+    ///
     /// This method achieves 100% stealth parity with Rebrowser by:
     /// 1. Using `Page.createIsolatedWorld` to create a JS context
     /// 2. Getting the `ExecutionContextId` directly from the response
     /// 3. **Never calling `Runtime.enable`**
-    /// 
+    ///
     /// Site scripts cannot see your variables (isolated world).
     /// Anti-bots cannot detect CDP activity (Runtime domain untouched).
     pub async fn evaluate_stealth(&self, script: &str) -> Result<Option<Value>> {
         // Get the main frame ID
-        let frame_id = self.inner.mainframe().await
+        let frame_id = self
+            .inner
+            .mainframe()
+            .await
             .map_err(|e| anyhow!("{}", e))?
             .ok_or_else(|| anyhow!("No main frame available"))?;
 
         // Create an isolated world - Chrome returns the Context ID in the response!
         // This is the key insight: we get a context ID without touching Runtime domain
-        let isolated_world = self.inner.execute(
-            CreateIsolatedWorldParams::builder()
-                .frame_id(frame_id)
-                .world_name("ghost") // Our stealth world
-                .grant_univeral_access(true) // Access to page DOM
-                .build()
-                .unwrap()
-        ).await.map_err(|e| anyhow!("{}", e))?;
+        let isolated_world = self
+            .inner
+            .execute(
+                CreateIsolatedWorldParams::builder()
+                    .frame_id(frame_id)
+                    .world_name("chaser") // Our stealth world
+                    .grant_univeral_access(true) // Access to page DOM
+                    .build()
+                    .unwrap(),
+            )
+            .await
+            .map_err(|e| anyhow!("{}", e))?;
 
         let ctx_id = isolated_world.result.execution_context_id;
 
@@ -110,12 +255,16 @@ impl GhostPage {
             .build()
             .unwrap();
 
-        let res = self.inner.execute(params).await.map_err(|e| anyhow!("{}", e))?;
+        let res = self
+            .inner
+            .execute(params)
+            .await
+            .map_err(|e| anyhow!("{}", e))?;
         Ok(res.result.result.value)
     }
 
     /// Moves the mouse to the target coordinates using a human-like Bezier curve path.
-    /// 
+    ///
     /// The path includes:
     /// - Randomized control points for natural arcs
     /// - 20% chance of slight overshoot
@@ -126,16 +275,25 @@ impl GhostPage {
         let end = Point { x, y };
 
         let mut rng = rand::thread_rng();
-        
+
         // Target Selection Jitter: don't land exactly on the pixel
         let jitter_x = rng.gen_range(-2.0..2.0);
         let jitter_y = rng.gen_range(-2.0..2.0);
-        let target_with_jitter = Point { x: end.x + jitter_x, y: end.y + jitter_y };
+        let target_with_jitter = Point {
+            x: end.x + jitter_x,
+            y: end.y + jitter_y,
+        };
 
         let path = BezierPath::generate(start, target_with_jitter, 25);
-        
+
         for point in path {
-            self.inner.move_mouse(crate::layout::Point { x: point.x, y: point.y }).await.map_err(|e| anyhow!("{}", e))?;
+            self.inner
+                .move_mouse(crate::layout::Point {
+                    x: point.x,
+                    y: point.y,
+                })
+                .await
+                .map_err(|e| anyhow!("{}", e))?;
             *self.mouse_pos.lock().unwrap() = point;
             // Tiny delay to simulate physical movement
             tokio::time::sleep(tokio::time::Duration::from_millis(rng.gen_range(5..15))).await;
@@ -146,37 +304,40 @@ impl GhostPage {
 
     /// Perform a click at the current mouse position.
     pub async fn click(&self) -> Result<()> {
-         let pos = { *self.mouse_pos.lock().unwrap() };
-         self.inner.click(crate::layout::Point { x: pos.x, y: pos.y }).await.map_err(|e| anyhow!("{}", e))?;
-         Ok(())
+        let pos = { *self.mouse_pos.lock().unwrap() };
+        self.inner
+            .click(crate::layout::Point { x: pos.x, y: pos.y })
+            .await
+            .map_err(|e| anyhow!("{}", e))?;
+        Ok(())
     }
 
     /// Move to target and click with full human-like behavior.
-    /// 
+    ///
     /// Combines Bezier curve mouse movement with a natural click, including:
     /// - Human-like path to target
     /// - Small random delay before clicking (50-150ms)
     /// - Variable click duration
     pub async fn click_human(&self, x: f64, y: f64) -> Result<()> {
         let mut rng = rand::thread_rng();
-        
+
         // Move to target with bezier curve
         self.move_mouse_human(x, y).await?;
-        
+
         // Small pause before clicking (humans don't click instantly after arriving)
         tokio::time::sleep(tokio::time::Duration::from_millis(rng.gen_range(50..150))).await;
-        
+
         // Click
         self.click().await?;
-        
+
         // Small pause after clicking
         tokio::time::sleep(tokio::time::Duration::from_millis(rng.gen_range(30..80))).await;
-        
+
         Ok(())
     }
 
     /// Type text with human-like delays between keystrokes.
-    /// 
+    ///
     /// Simulates realistic typing with:
     /// - Variable delay between keys (50-150ms by default)
     /// - Occasional longer pauses (5% chance of 200-400ms pause)
@@ -185,14 +346,19 @@ impl GhostPage {
     }
 
     /// Type text with custom delay range (in milliseconds).
-    /// 
+    ///
     /// # Arguments
     /// * `text` - The text to type
     /// * `min_delay_ms` - Minimum delay between keystrokes
     /// * `max_delay_ms` - Maximum delay between keystrokes
-    pub async fn type_text_with_delay(&self, text: &str, min_delay_ms: u64, max_delay_ms: u64) -> Result<()> {
+    pub async fn type_text_with_delay(
+        &self,
+        text: &str,
+        min_delay_ms: u64,
+        max_delay_ms: u64,
+    ) -> Result<()> {
         let mut rng = rand::thread_rng();
-        
+
         for c in text.chars() {
             // Send keyDown with the character
             let key_down = DispatchKeyEventParams::builder()
@@ -200,30 +366,36 @@ impl GhostPage {
                 .text(c.to_string())
                 .build()
                 .unwrap();
-            
-            self.inner.execute(key_down).await.map_err(|e| anyhow!("{}", e))?;
-            
+
+            self.inner
+                .execute(key_down)
+                .await
+                .map_err(|e| anyhow!("{}", e))?;
+
             // Send keyUp
             let key_up = DispatchKeyEventParams::builder()
                 .r#type(DispatchKeyEventType::KeyUp)
                 .build()
                 .unwrap();
-            
-            self.inner.execute(key_up).await.map_err(|e| anyhow!("{}", e))?;
-            
+
+            self.inner
+                .execute(key_up)
+                .await
+                .map_err(|e| anyhow!("{}", e))?;
+
             // Random delay between keystrokes
             let delay = rng.gen_range(min_delay_ms..max_delay_ms);
-            
+
             // 5% chance of a longer "thinking" pause
             let actual_delay = if rng.gen_bool(0.05) {
                 rng.gen_range(200..400)
             } else {
                 delay
             };
-            
+
             tokio::time::sleep(tokio::time::Duration::from_millis(actual_delay)).await;
         }
-        
+
         Ok(())
     }
 
@@ -242,25 +414,31 @@ impl GhostPage {
             "ArrowRight" => ("ArrowRight", "ArrowRight"),
             _ => (key, key),
         };
-        
+
         let key_down = DispatchKeyEventParams::builder()
             .r#type(DispatchKeyEventType::RawKeyDown)
             .key(key_str)
             .code(code)
             .build()
             .unwrap();
-        
-        self.inner.execute(key_down).await.map_err(|e| anyhow!("{}", e))?;
-        
+
+        self.inner
+            .execute(key_down)
+            .await
+            .map_err(|e| anyhow!("{}", e))?;
+
         let key_up = DispatchKeyEventParams::builder()
             .r#type(DispatchKeyEventType::KeyUp)
             .key(key_str)
             .code(code)
             .build()
             .unwrap();
-        
-        self.inner.execute(key_up).await.map_err(|e| anyhow!("{}", e))?;
-        
+
+        self.inner
+            .execute(key_up)
+            .await
+            .map_err(|e| anyhow!("{}", e))?;
+
         Ok(())
     }
 
@@ -279,26 +457,26 @@ impl GhostPage {
     }
 
     /// Scroll the page with human-like physics (smooth, variable speed).
-    /// 
+    ///
     /// Simulates realistic scrolling with:
     /// - Multiple small scroll steps rather than one jump
     /// - Variable scroll distances per step
     /// - Easing at start and end (deceleration)
-    /// 
+    ///
     /// # Arguments
     /// * `delta_y` - Total pixels to scroll (positive = down, negative = up)
     pub async fn scroll_human(&self, delta_y: i32) -> Result<()> {
         use chromiumoxide_cdp::cdp::browser_protocol::input::{
             DispatchMouseEventParams, DispatchMouseEventType, MouseButton,
         };
-        
+
         let mut rng = rand::thread_rng();
         let pos = { *self.mouse_pos.lock().unwrap() };
-        
+
         // Number of scroll steps (more steps = smoother)
         let steps = (delta_y.abs() / 50).max(3).min(15) as usize;
         let mut remaining = delta_y;
-        
+
         for i in 0..steps {
             // Ease-in/ease-out: scroll less at start and end
             let progress = i as f64 / steps as f64;
@@ -309,13 +487,15 @@ impl GhostPage {
             } else {
                 1.0
             };
-            
+
             let base_step = remaining / (steps - i) as i32;
             let jitter = rng.gen_range(-10..10);
             let step = ((base_step as f64 * ease) as i32 + jitter).clamp(-200, 200);
-            
-            if step == 0 { continue; }
-            
+
+            if step == 0 {
+                continue;
+            }
+
             let scroll = DispatchMouseEventParams::builder()
                 .r#type(DispatchMouseEventType::MouseWheel)
                 .x(pos.x)
@@ -325,43 +505,47 @@ impl GhostPage {
                 .delta_y(step as f64)
                 .build()
                 .unwrap();
-            
-            self.inner.execute(scroll).await.map_err(|e| anyhow!("{}", e))?;
+
+            self.inner
+                .execute(scroll)
+                .await
+                .map_err(|e| anyhow!("{}", e))?;
             remaining -= step;
-            
+
             // Variable delay between scroll events (16-50ms for 60-20 FPS feel)
             tokio::time::sleep(tokio::time::Duration::from_millis(rng.gen_range(16..50))).await;
         }
-        
+
         Ok(())
     }
 
     /// Type text with occasional typos and corrections for ultra-realistic input.
-    /// 
+    ///
     /// This method has a small chance (~3%) of making a typo and then correcting it,
     /// mimicking how real humans type.
     pub async fn type_text_with_typos(&self, text: &str) -> Result<()> {
         let mut rng = rand::thread_rng();
         let typo_chars = ['q', 'w', 'e', 'r', 't', 'a', 's', 'd', 'f', 'g'];
-        
+
         for c in text.chars() {
             // 3% chance of typo
             if rng.gen_bool(0.03) && c.is_alphabetic() {
                 // Type wrong character
                 let typo = typo_chars[rng.gen_range(0..typo_chars.len())];
                 self.type_single_char(typo).await?;
-                
+
                 // Brief pause to "notice" the mistake
-                tokio::time::sleep(tokio::time::Duration::from_millis(rng.gen_range(100..300))).await;
-                
+                tokio::time::sleep(tokio::time::Duration::from_millis(rng.gen_range(100..300)))
+                    .await;
+
                 // Backspace to correct
                 self.press_key("Backspace").await?;
                 tokio::time::sleep(tokio::time::Duration::from_millis(rng.gen_range(30..80))).await;
             }
-            
+
             // Type the correct character
             self.type_single_char(c).await?;
-            
+
             // Random delay
             let delay = rng.gen_range(50..150);
             let actual_delay = if rng.gen_bool(0.05) {
@@ -371,7 +555,7 @@ impl GhostPage {
             };
             tokio::time::sleep(tokio::time::Duration::from_millis(actual_delay)).await;
         }
-        
+
         Ok(())
     }
 
@@ -382,15 +566,21 @@ impl GhostPage {
             .text(c.to_string())
             .build()
             .unwrap();
-        
-        self.inner.execute(key_down).await.map_err(|e| anyhow!("{}", e))?;
-        
+
+        self.inner
+            .execute(key_down)
+            .await
+            .map_err(|e| anyhow!("{}", e))?;
+
         let key_up = DispatchKeyEventParams::builder()
             .r#type(DispatchKeyEventType::KeyUp)
             .build()
             .unwrap();
-        
-        self.inner.execute(key_up).await.map_err(|e| anyhow!("{}", e))?;
+
+        self.inner
+            .execute(key_up)
+            .await
+            .map_err(|e| anyhow!("{}", e))?;
         Ok(())
     }
 }
@@ -400,7 +590,7 @@ pub struct BezierPath;
 
 impl BezierPath {
     /// Generates a path of points from start to end using a cubic Bezier curve.
-    /// 
+    ///
     /// The curve includes randomized control points to create natural, human-like arcs.
     pub fn generate(start: Point, end: Point, steps: usize) -> Vec<Point> {
         let mut rng = rand::thread_rng();
@@ -425,28 +615,36 @@ impl BezierPath {
 
         if rng.gen_bool(0.20) {
             let overshoot_amt = dist * 0.05;
-            p2.x += if end.x > start.x { overshoot_amt } else { -overshoot_amt };
-            p2.y += if end.y > start.y { overshoot_amt } else { -overshoot_amt };
+            p2.x += if end.x > start.x {
+                overshoot_amt
+            } else {
+                -overshoot_amt
+            };
+            p2.y += if end.y > start.y {
+                overshoot_amt
+            } else {
+                -overshoot_amt
+            };
         }
 
         // Generate points along the Bezier curve
         for i in 0..=steps {
             let t = i as f64 / steps as f64;
-            
+
             // Cubic Bezier formula
-            let x = (1.0 - t).powi(3) * start.x 
-                    + 3.0 * (1.0 - t).powi(2) * t * p1.x 
-                    + 3.0 * (1.0 - t) * t.powi(2) * p2.x 
-                    + t.powi(3) * end.x;
-            
-            let y = (1.0 - t).powi(3) * start.y 
-                    + 3.0 * (1.0 - t).powi(2) * t * p1.y 
-                    + 3.0 * (1.0 - t) * t.powi(2) * p2.y 
-                    + t.powi(3) * end.y;
+            let x = (1.0 - t).powi(3) * start.x
+                + 3.0 * (1.0 - t).powi(2) * t * p1.x
+                + 3.0 * (1.0 - t) * t.powi(2) * p2.x
+                + t.powi(3) * end.x;
+
+            let y = (1.0 - t).powi(3) * start.y
+                + 3.0 * (1.0 - t).powi(2) * t * p1.y
+                + 3.0 * (1.0 - t) * t.powi(2) * p2.y
+                + t.powi(3) * end.y;
 
             path.push(Point { x, y });
         }
-        
+
         path
     }
 }

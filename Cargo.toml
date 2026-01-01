@@ -1,5 +1,5 @@
 [package]
-name = "ghostoxide"
+name = "chaser-oxide"
 version = "0.1.0"
 rust-version = "1.85"
 autotests = false

@@ -1,14 +1,14 @@
 //! Stealth profile system for customizable browser fingerprints.
-//! 
+//!
 //! This module provides an ergonomic builder pattern for creating consistent
 //! browser "personalities" that bypass anti-bot detection.
-//! 
+//!
 //! # Example
-//! 
+//!
 //! ```rust
-//! use ghostoxide::profiles::{GhostProfile, Gpu};
-//! 
-//! let profile = GhostProfile::windows()
+//! use chaser-oxide::profiles::{ChaserProfile, Gpu};
+//!
+//! let profile = ChaserProfile::windows()
 //!     .chrome_version(130)
 //!     .gpu(Gpu::NvidiaRTX4080)
 //!     .memory_gb(16)
@@ -29,7 +29,7 @@ pub enum Gpu {
     NvidiaGTX1660,
     /// Intel UHD Graphics 630 (common laptop GPU)
     IntelUHD630,
-    /// Intel Iris Xe (modern laptop GPU)  
+    /// Intel Iris Xe (modern laptop GPU)
     IntelIrisXe,
     /// Apple M1 Pro
     AppleM1Pro,
@@ -51,18 +51,28 @@ impl Gpu {
             Gpu::AmdRadeonRX6800 => "Google Inc. (AMD)",
         }
     }
-    
+
     /// Returns the WebGL renderer string
     pub fn renderer(&self) -> &'static str {
         match self {
-            Gpu::NvidiaRTX3080 => "ANGLE (NVIDIA, NVIDIA GeForce RTX 3080 Direct3D11 vs_5_0 ps_5_0)",
-            Gpu::NvidiaRTX4080 => "ANGLE (NVIDIA, NVIDIA GeForce RTX 4080 Direct3D11 vs_5_0 ps_5_0)",
-            Gpu::NvidiaGTX1660 => "ANGLE (NVIDIA, NVIDIA GeForce GTX 1660 SUPER Direct3D11 vs_5_0 ps_5_0)",
+            Gpu::NvidiaRTX3080 => {
+                "ANGLE (NVIDIA, NVIDIA GeForce RTX 3080 Direct3D11 vs_5_0 ps_5_0)"
+            }
+            Gpu::NvidiaRTX4080 => {
+                "ANGLE (NVIDIA, NVIDIA GeForce RTX 4080 Direct3D11 vs_5_0 ps_5_0)"
+            }
+            Gpu::NvidiaGTX1660 => {
+                "ANGLE (NVIDIA, NVIDIA GeForce GTX 1660 SUPER Direct3D11 vs_5_0 ps_5_0)"
+            }
             Gpu::IntelUHD630 => "ANGLE (Intel, Intel(R) UHD Graphics 630 Direct3D11 vs_5_0 ps_5_0)",
-            Gpu::IntelIrisXe => "ANGLE (Intel, Intel(R) Iris(R) Xe Graphics Direct3D11 vs_5_0 ps_5_0)",
+            Gpu::IntelIrisXe => {
+                "ANGLE (Intel, Intel(R) Iris(R) Xe Graphics Direct3D11 vs_5_0 ps_5_0)"
+            }
             Gpu::AppleM1Pro => "ANGLE (Apple, Apple M1 Pro, OpenGL 4.1)",
             Gpu::AppleM2Max => "ANGLE (Apple, Apple M2 Max, OpenGL 4.1)",
-            Gpu::AppleM4Max => "ANGLE (Apple, ANGLE Metal Renderer: Apple M4 Max, Unspecified Version)",
+            Gpu::AppleM4Max => {
+                "ANGLE (Apple, ANGLE Metal Renderer: Apple M4 Max, Unspecified Version)"
+            }
             Gpu::AmdRadeonRX6800 => "ANGLE (AMD, AMD Radeon RX 6800 XT Direct3D11 vs_5_0 ps_5_0)",
         }
     }
@@ -90,7 +100,7 @@ impl Os {
             Os::Linux => "Linux x86_64",
         }
     }
-    
+
     /// Returns the client hints platform
     pub fn hints_platform(&self) -> &'static str {
         match self {
@@ -102,17 +112,17 @@ impl Os {
 }
 
 /// A builder for creating consistent browser fingerprint profiles.
-/// 
+///
 /// # Example
-/// 
+///
 /// ```rust
-/// use ghostoxide::profiles::{GhostProfile, Gpu, Os};
-/// 
+/// use chaser-oxide::profiles::{ChaserProfile, Gpu, Os};
+///
 /// // Quick preset
-/// let profile = GhostProfile::windows().build();
-/// 
+/// let profile = ChaserProfile::windows().build();
+///
 /// // Customized
-/// let profile = GhostProfile::new(Os::Windows)
+/// let profile = ChaserProfile::new(Os::Windows)
 ///     .chrome_version(130)
 ///     .gpu(Gpu::NvidiaRTX4080)
 ///     .memory_gb(32)
@@ -122,7 +132,7 @@ impl Os {
 ///     .build();
 /// ```
 #[derive(Debug, Clone)]
-pub struct GhostProfile {
+pub struct ChaserProfile {
     os: Os,
     chrome_version: u32,
     gpu: Gpu,
@@ -134,16 +144,16 @@ pub struct GhostProfile {
     screen_height: u32,
 }
 
-impl Default for GhostProfile {
+impl Default for ChaserProfile {
     fn default() -> Self {
         Self::windows().build()
     }
 }
 
-impl GhostProfile {
+impl ChaserProfile {
     /// Create a new profile with the specified OS
-    pub fn new(os: Os) -> GhostProfileBuilder {
-        GhostProfileBuilder {
+    pub fn new(os: Os) -> ChaserProfileBuilder {
+        ChaserProfileBuilder {
             os,
             chrome_version: 129,
             gpu: match os {
@@ -160,38 +170,56 @@ impl GhostProfile {
             screen_height: 1080,
         }
     }
-    
+
     /// Create a Windows profile with sensible defaults (RTX 3080, 8 cores)
-    pub fn windows() -> GhostProfileBuilder {
+    pub fn windows() -> ChaserProfileBuilder {
         Self::new(Os::Windows)
     }
-    
+
     /// Create a macOS Intel profile
-    pub fn macos_intel() -> GhostProfileBuilder {
+    pub fn macos_intel() -> ChaserProfileBuilder {
         Self::new(Os::MacOSIntel).gpu(Gpu::AppleM1Pro)
     }
-    
-    /// Create a macOS Apple Silicon profile  
-    pub fn macos_arm() -> GhostProfileBuilder {
+
+    /// Create a macOS Apple Silicon profile
+    pub fn macos_arm() -> ChaserProfileBuilder {
         Self::new(Os::MacOSArm).gpu(Gpu::AppleM4Max)
     }
-    
+
     /// Create a Linux profile
-    pub fn linux() -> GhostProfileBuilder {
+    pub fn linux() -> ChaserProfileBuilder {
         Self::new(Os::Linux)
     }
-    
+
     // Getters
-    pub fn os(&self) -> Os { self.os }
-    pub fn chrome_version(&self) -> u32 { self.chrome_version }
-    pub fn gpu(&self) -> Gpu { self.gpu }
-    pub fn memory_gb(&self) -> u32 { self.memory_gb }
-    pub fn cpu_cores(&self) -> u32 { self.cpu_cores }
-    pub fn locale(&self) -> &str { &self.locale }
-    pub fn timezone(&self) -> &str { &self.timezone }
-    pub fn screen_width(&self) -> u32 { self.screen_width }
-    pub fn screen_height(&self) -> u32 { self.screen_height }
-    
+    pub fn os(&self) -> Os {
+        self.os
+    }
+    pub fn chrome_version(&self) -> u32 {
+        self.chrome_version
+    }
+    pub fn gpu(&self) -> Gpu {
+        self.gpu
+    }
+    pub fn memory_gb(&self) -> u32 {
+        self.memory_gb
+    }
+    pub fn cpu_cores(&self) -> u32 {
+        self.cpu_cores
+    }
+    pub fn locale(&self) -> &str {
+        &self.locale
+    }
+    pub fn timezone(&self) -> &str {
+        &self.timezone
+    }
+    pub fn screen_width(&self) -> u32 {
+        self.screen_width
+    }
+    pub fn screen_height(&self) -> u32 {
+        self.screen_height
+    }
+
     /// Generate the User-Agent string for this profile
     pub fn user_agent(&self) -> String {
         let os_part = match self.os {
@@ -204,34 +232,35 @@ impl GhostProfile {
             os_part, self.chrome_version
         )
     }
-    
+
     /// Generate the complete JavaScript bootstrap script for this profile
     pub fn bootstrap_script(&self) -> String {
-        format!(r#"
+        format!(
+            r#"
             (function() {{
-                // === GHOSTOXIDE HARDWARE HARMONY ===
+                // === chaser-oxide HARDWARE HARMONY ===
                 // Profile: {ua}
-                
+
                 // 1. Platform
-                Object.defineProperty(navigator, 'platform', {{ 
+                Object.defineProperty(navigator, 'platform', {{
                     get: () => '{platform}',
                     configurable: true
                 }});
-                
+
                 // 2. Hardware
-                Object.defineProperty(navigator, 'hardwareConcurrency', {{ 
+                Object.defineProperty(navigator, 'hardwareConcurrency', {{
                     get: () => {cores},
-                    configurable: true 
+                    configurable: true
                 }});
-                Object.defineProperty(navigator, 'deviceMemory', {{ 
+                Object.defineProperty(navigator, 'deviceMemory', {{
                     get: () => {memory},
                     configurable: true
                 }});
-                Object.defineProperty(navigator, 'maxTouchPoints', {{ 
+                Object.defineProperty(navigator, 'maxTouchPoints', {{
                     get: () => 0,
                     configurable: true
                 }});
-                
+
                 // 3. WebGL
                 const spoofWebGL = (proto) => {{
                     const getParameter = proto.getParameter;
@@ -245,7 +274,7 @@ impl GhostProfile {
                 if (typeof WebGL2RenderingContext !== 'undefined') {{
                     spoofWebGL(WebGL2RenderingContext.prototype);
                 }}
-                
+
                 // 4. Client Hints
                 Object.defineProperty(navigator, 'userAgentData', {{
                     get: () => ({{
@@ -258,7 +287,7 @@ impl GhostProfile {
                         platform: "{hints_platform}"
                     }})
                 }});
-                
+
                 // 5. Video Codecs
                 const canPlayType = HTMLMediaElement.prototype.canPlayType;
                 HTMLMediaElement.prototype.canPlayType = function(type) {{
@@ -267,10 +296,10 @@ impl GhostProfile {
                     if (type === 'video/mp4') return 'probably';
                     return canPlayType.apply(this, arguments);
                 }};
-                
+
                 // 6. WebDriver
                 delete Object.getPrototypeOf(navigator).webdriver;
-                
+
                 // 7. Chrome Object
                 window.chrome = {{ runtime: {{}} }};
             }})();
@@ -287,16 +316,19 @@ impl GhostProfile {
     }
 }
 
-impl fmt::Display for GhostProfile {
+impl fmt::Display for ChaserProfile {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "GhostProfile({:?}, Chrome {}, {:?})", 
-            self.os, self.chrome_version, self.gpu)
+        write!(
+            f,
+            "ChaserProfile({:?}, Chrome {}, {:?})",
+            self.os, self.chrome_version, self.gpu
+        )
     }
 }
 
-/// Builder for constructing `GhostProfile` instances
+/// Builder for constructing `ChaserProfile` instances
 #[derive(Debug, Clone)]
-pub struct GhostProfileBuilder {
+pub struct ChaserProfileBuilder {
     os: Os,
     chrome_version: u32,
     gpu: Gpu,
@@ -308,53 +340,53 @@ pub struct GhostProfileBuilder {
     screen_height: u32,
 }
 
-impl GhostProfileBuilder {
+impl ChaserProfileBuilder {
     /// Set the Chrome version (default: 129)
     pub fn chrome_version(mut self, version: u32) -> Self {
         self.chrome_version = version;
         self
     }
-    
+
     /// Set the GPU for WebGL spoofing
     pub fn gpu(mut self, gpu: Gpu) -> Self {
         self.gpu = gpu;
         self
     }
-    
+
     /// Set device memory in GB (default: 8)
     pub fn memory_gb(mut self, gb: u32) -> Self {
         self.memory_gb = gb;
         self
     }
-    
+
     /// Set CPU core count (default: 8)
     pub fn cpu_cores(mut self, cores: u32) -> Self {
         self.cpu_cores = cores;
         self
     }
-    
+
     /// Set the locale (e.g., "en-US", "de-DE")
     pub fn locale(mut self, locale: impl Into<String>) -> Self {
         self.locale = locale.into();
         self
     }
-    
+
     /// Set the timezone (e.g., "America/New_York", "Europe/Berlin")
     pub fn timezone(mut self, tz: impl Into<String>) -> Self {
         self.timezone = tz.into();
         self
     }
-    
+
     /// Set screen resolution
     pub fn screen(mut self, width: u32, height: u32) -> Self {
         self.screen_width = width;
         self.screen_height = height;
         self
     }
-    
+
     /// Build the final profile
-    pub fn build(self) -> GhostProfile {
-        GhostProfile {
+    pub fn build(self) -> ChaserProfile {
+        ChaserProfile {
             os: self.os,
             chrome_version: self.chrome_version,
             gpu: self.gpu,
@@ -369,4 +401,4 @@ impl GhostProfileBuilder {
 }
 
 // Re-export the old trait-based system for backwards compatibility
-pub use crate::stealth::{StealthProfile, WindowsNvidiaProfile, MacOSProfile, LinuxProfile};
+pub use crate::stealth::{LinuxProfile, MacOSProfile, StealthProfile, WindowsNvidiaProfile};

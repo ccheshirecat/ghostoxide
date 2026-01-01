@@ -1,14 +1,14 @@
-use ghostoxide::{Browser, BrowserConfig, GhostPage};
+use chaser-oxide::{Browser, BrowserConfig, ChaserPage};
 use futures::StreamExt;
 use std::time::Duration;
 use anyhow::Result;
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    println!("Launching Ghostoxide Stealth Browser...");
+    println!("Launching chaser-oxide Stealth Browser...");
     let (browser, mut handler) = Browser::launch(
         BrowserConfig::builder()
-            .viewport(None) 
+            .viewport(None)
             .build()
             .map_err(|e| anyhow::anyhow!(e))?
     ).await?;
@@ -20,15 +20,15 @@ async fn main() -> Result<()> {
     // CRITICAL: Create page with about:blank FIRST
     println!("Creating page...");
     let page = browser.new_page("about:blank").await?;
-    
+
     // Apply stealth patches BEFORE navigation
     // This registers the scripts for all future document loads
     println!("Applying stealth patches...");
     page.enable_stealth_mode().await?;
-    
+
     // Small delay to ensure scripts are registered
     tokio::time::sleep(Duration::from_millis(100)).await;
-    
+
     // NOW navigate to the detection test
     println!("Navigating to detection test...");
     page.goto("https://bot.sannysoft.com").await?;
@@ -36,30 +36,30 @@ async fn main() -> Result<()> {
     // Wait for page to fully load
     tokio::time::sleep(Duration::from_secs(3)).await;
 
-    // Upgrade to GhostPage
-    let ghost = GhostPage::new(page);
+    // Upgrade to ChaserPage
+    let chaser = ChaserPage::new(page);
 
     // Human-like mouse movement
     println!("Simulating human mouse movement...");
-    ghost.move_mouse_human(500.0, 300.0).await?;
-    
+    chaser.move_mouse_human(500.0, 300.0).await?;
+
     // Test stealth execution
     println!("\nReading values from the PAGE (main world sees spoofed values):");
-    
+
     // Read what the site's JavaScript sees
-    let user_agent = ghost.evaluate_stealth("navigator.userAgent").await?;
+    let user_agent = chaser.evaluate_stealth("navigator.userAgent").await?;
     println!("  navigator.userAgent = {:?}", user_agent);
 
     // Wait and take screenshot
     println!("\nWaiting for page to render...");
     tokio::time::sleep(Duration::from_secs(5)).await;
 
-    ghost.inner().save_screenshot(
-        ghostoxide::page::ScreenshotParams::builder().build(),
+    chaser.inner().save_screenshot(
+        chaser-oxide::page::ScreenshotParams::builder().build(),
         "stealth_test.png"
     ).await?;
     println!("Screenshot saved to stealth_test.png");
-    
+
     println!("\nBrowser will close in 5 seconds...");
     tokio::time::sleep(Duration::from_secs(5)).await;
 

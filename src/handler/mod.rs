@@ -1,8 +1,8 @@
+use chromiumoxide_cdp::cdp::js_protocol::runtime::ExecutionContextId;
+use dashmap::DashMap;
 use std::collections::{HashMap, HashSet};
 use std::pin::Pin;
 use std::sync::Arc;
-use dashmap::DashMap;
-use chromiumoxide_cdp::cdp::js_protocol::runtime::ExecutionContextId;
 use std::time::{Duration, Instant};
 
 use fnv::FnvHashMap;
@@ -403,16 +403,17 @@ impl Handler {
 
     /// Process an incoming event read from the websocket
     fn on_event(&mut self, event: CdpEventMessage) {
-        // Ghostoxide Stealth: Capture Context ID BEFORE dispatching to target
+        // chaser-oxide Stealth: Capture Context ID BEFORE dispatching to target
         // This must be done first because target.on_event() doesn't return the event
         if let CdpEvent::RuntimeBindingCalled(ev) = &event.params {
-            if ev.name == "ghost_init" {
-                 if let Some(session_id) = &event.session_id {
-                     if let Some(session) = self.sessions.get(session_id.as_str()) {
-                          // Successfully captured the context ID for this target
-                          self.contexts.insert(session.target_id().clone(), ev.execution_context_id);
-                     }
-                 }
+            if ev.name == "chaser_init" {
+                if let Some(session_id) = &event.session_id {
+                    if let Some(session) = self.sessions.get(session_id.as_str()) {
+                        // Successfully captured the context ID for this target
+                        self.contexts
+                            .insert(session.target_id().clone(), ev.execution_context_id);
+                    }
+                }
             }
         }
 

@@ -98,11 +98,14 @@ pub(crate) mod utils;
 
 pub type ArcHttpRequest = Option<Arc<HttpRequest>>;
 
-pub mod ghost;
-pub use crate::ghost::*;
+pub mod chaser;
+pub use crate::chaser::*;
 
 pub mod stealth;
 pub use crate::stealth::*;
 
 pub mod profiles;
 pub use crate::profiles::*;
+
+// Re-export useful CDP types for request interception
+pub use chromiumoxide_cdp::cdp::browser_protocol::network::ResourceType;
