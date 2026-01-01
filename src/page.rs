@@ -49,11 +49,13 @@ impl Page {
     /// changes permissions, pluggins rendering contexts and the `window.chrome`
     /// property to make it harder to detect the scraper as a bot
     async fn _enable_stealth_mode(&self) -> Result<()> {
+        self.hide_hardware_harmony().await?; // MUST be first - establishes consistent identity
         self.hide_webdriver().await?;
         self.hide_permissions().await?;
         self.hide_plugins().await?;
         self.hide_webgl_vendor().await?;
         self.hide_chrome().await?;
+        self.hide_codecs().await?;
 
         Ok(())
     }
@@ -63,8 +65,33 @@ impl Page {
     /// property to make it harder to detect the scraper as a bot
     pub async fn enable_stealth_mode(&self) -> Result<()> {
         self._enable_stealth_mode().await?;
-        self.set_user_agent("Mozilla/5.0 (Windows NT 11.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/107.0.5296.0 Safari/537.36").await?;
+        self.hide_client_hints().await?;
+        self.set_user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36").await?;
 
+        Ok(())
+    }
+
+    /// Patches navigator.userAgentData to hide HeadlessChrome
+    async fn hide_client_hints(&self) -> Result<(), CdpError> {
+        self.execute(AddScriptToEvaluateOnNewDocumentParams {
+            source: r#"
+                Object.defineProperty(navigator, 'userAgentData', {
+                    get: () => ({
+                        brands: [
+                            { brand: "Google Chrome", version: "129" },
+                            { brand: "Chromium", version: "129" },
+                            { brand: "Not=A?Brand", version: "24" }
+                        ],
+                        mobile: false,
+                        platform: "Windows"
+                    })
+                });
+            "#.to_string(),
+            world_name: None,
+            include_command_line_api: None,
+            run_immediately: None,
+        })
+        .await?;
         Ok(())
     }
 
@@ -76,6 +103,37 @@ impl Page {
         if !ua.is_empty() {
             self.set_user_agent(ua).await?;
         }
+        Ok(())
+    }
+
+    /// **Hardware Harmony**: Establishes a consistent Windows/NVIDIA identity.
+    /// 
+    /// Fixes the "Platform Chimera" issue where User-Agent says Windows but
+    /// navigator.platform says MacIntel. This is a critical anti-detection fix.
+    async fn hide_hardware_harmony(&self) -> Result<(), CdpError> {
+        self.execute(AddScriptToEvaluateOnNewDocumentParams {
+            source: r#"
+                // 1. Fix Platform - MUST match Windows User-Agent
+                Object.defineProperty(navigator, 'platform', { 
+                    get: () => 'Win32',
+                    configurable: true
+                });
+
+                // 2. Align Hardware specs for a "typical gamer PC" profile
+                Object.defineProperty(navigator, 'hardwareConcurrency', { 
+                    get: () => 8,
+                    configurable: true 
+                });
+                Object.defineProperty(navigator, 'deviceMemory', { 
+                    get: () => 8,
+                    configurable: true
+                });
+            "#.to_string(),
+            world_name: None,
+            include_command_line_api: None,
+            run_immediately: None,
+        })
+        .await?;
         Ok(())
     }
 
@@ -91,25 +149,31 @@ impl Page {
         Ok(())
     }
 
-    /// Obfuscates WebGL vendor on frame creation
+    /// Obfuscates WebGL vendor/renderer to match Windows NVIDIA profile
     async fn hide_webgl_vendor(&self) -> Result<(), CdpError> {
         self
             .execute(AddScriptToEvaluateOnNewDocumentParams {
-                source: "
-                    const getParameter = WebGLRenderingContext.getParameter;
-                    WebGLRenderingContext.prototype.getParameter = function (parameter) {
-                        if (parameter === 37445) {
-                            return 'Google Inc. (NVIDIA)';
-                        }
-
-                        if (parameter === 37446) {
-                            return 'ANGLE (NVIDIA, NVIDIA GeForce GTX 1050 Direct3D11 vs_5_0 ps_5_0, D3D11-27.21.14.5671)';
-                        }
-
-                        return getParameter(parameter);
+                source: r#"
+                    // Spoof WebGL for both WebGL1 and WebGL2 contexts
+                    const spoofWebGL = (proto) => {
+                        const getParameter = proto.getParameter;
+                        proto.getParameter = function(parameter) {
+                            // UNMASKED_VENDOR_WEBGL
+                            if (parameter === 37445) {
+                                return 'Google Inc. (NVIDIA)';
+                            }
+                            // UNMASKED_RENDERER_WEBGL - RTX 3080 is a high-trust profile
+                            if (parameter === 37446) {
+                                return 'ANGLE (NVIDIA, NVIDIA GeForce RTX 3080 Direct3D11 vs_5_0 ps_5_0)';
+                            }
+                            return getParameter.apply(this, arguments);
+                        };
                     };
-                "
-                .to_string(),
+                    spoofWebGL(WebGLRenderingContext.prototype);
+                    if (typeof WebGL2RenderingContext !== 'undefined') {
+                        spoofWebGL(WebGL2RenderingContext.prototype);
+                    }
+                "#.to_string(),
                 world_name: None,
                 include_command_line_api: None,
                 run_immediately: None,
@@ -118,23 +182,99 @@ impl Page {
         Ok(())
     }
 
+    /// Spoofs video codec support (H.264/AAC) - critical for Turnstile/DataDome
+    async fn hide_codecs(&self) -> Result<(), CdpError> {
+         self.execute(AddScriptToEvaluateOnNewDocumentParams {
+            source: r#"
+                const canPlayType = HTMLMediaElement.prototype.canPlayType;
+                HTMLMediaElement.prototype.canPlayType = function(type) {
+                    // H.264 video codec (critical - headless often fails this)
+                    if (type.includes('avc1')) return 'probably';
+                    // AAC audio codec
+                    if (type.includes('mp4a.40')) return 'probably';
+                    // MP4 container
+                    if (type === 'video/mp4') return 'probably';
+                    if (type === 'audio/mp4') return 'probably';
+                    if (type === 'video/x-m4v') return 'probably';
+                    return canPlayType.apply(this, arguments);
+                };
+            "#.to_string(),
+            world_name: None,
+            include_command_line_api: None,
+            run_immediately: None,
+        })
+        .await?;
+        Ok(())
+    }
+
     /// Obfuscates browser plugins on frame creation
     async fn hide_plugins(&self) -> Result<(), CdpError> {
         self.execute(AddScriptToEvaluateOnNewDocumentParams {
-            source: "
-                    Object.defineProperty(
-                        navigator,
-                        'plugins',
-                        {
-                            get: () => [
-                                { filename: 'internal-pdf-viewer' },
-                                { filename: 'adsfkjlkjhalkh' },
-                                { filename: 'internal-nacl-plugin '}
-                            ],
+            source: r#"
+                // Create a proper PluginArray-like object (NOT an Array!)
+                // Key insight: PluginArray is array-like but Array.isArray() returns false
+                
+                const makePlugin = (name, filename, description) => {
+                    const plugin = Object.create(Plugin.prototype);
+                    Object.defineProperties(plugin, {
+                        name: { value: name, enumerable: true },
+                        filename: { value: filename, enumerable: true },
+                        description: { value: description, enumerable: true },
+                        length: { value: 1, enumerable: true },
+                        0: { value: { type: 'application/pdf', suffixes: 'pdf', description }, enumerable: true }
+                    });
+                    return plugin;
+                };
+                
+                // Create the fake PluginArray using the real PluginArray prototype
+                const fakePlugins = Object.create(PluginArray.prototype);
+                
+                const plugins = [
+                    makePlugin('PDF Viewer', 'internal-pdf-viewer', 'Portable Document Format'),
+                    makePlugin('Chrome PDF Viewer', 'internal-pdf-viewer', 'Portable Document Format'),
+                    makePlugin('Chromium PDF Viewer', 'internal-pdf-viewer', 'Portable Document Format'),
+                    makePlugin('Microsoft Edge PDF Viewer', 'internal-pdf-viewer', 'Portable Document Format'),
+                    makePlugin('WebKit built-in PDF', 'internal-pdf-viewer', 'Portable Document Format')
+                ];
+                
+                // Add indexed access and length
+                plugins.forEach((p, i) => {
+                    Object.defineProperty(fakePlugins, i, { value: p, enumerable: true });
+                });
+                Object.defineProperty(fakePlugins, 'length', { value: plugins.length, enumerable: true });
+                
+                // Add methods
+                Object.defineProperty(fakePlugins, 'item', { 
+                    value: function(index) { return this[index] || null; },
+                    enumerable: false
+                });
+                Object.defineProperty(fakePlugins, 'namedItem', { 
+                    value: function(name) { 
+                        for (let i = 0; i < this.length; i++) {
+                            if (this[i].name === name) return this[i];
                         }
-                    );
-                "
-            .to_string(),
+                        return null;
+                    },
+                    enumerable: false
+                });
+                Object.defineProperty(fakePlugins, 'refresh', { 
+                    value: function() {},
+                    enumerable: false
+                });
+                
+                // Make it iterable
+                Object.defineProperty(fakePlugins, Symbol.iterator, {
+                    value: function* () {
+                        for (let i = 0; i < this.length; i++) yield this[i];
+                    },
+                    enumerable: false
+                });
+                
+                Object.defineProperty(navigator, 'plugins', {
+                    get: () => fakePlugins,
+                    configurable: true
+                });
+            "#.to_string(),
             world_name: None,
             include_command_line_api: None,
             run_immediately: None,
@@ -167,11 +307,7 @@ impl Page {
     async fn hide_webdriver(&self) -> Result<(), CdpError> {
         self.execute(AddScriptToEvaluateOnNewDocumentParams {
             source: "
-                    Object.defineProperty(
-                        navigator,
-                        'webdriver',
-                        { get: () => undefined }
-                    );
+                    delete Object.getPrototypeOf(navigator).webdriver;
                 "
             .to_string(),
             world_name: None,

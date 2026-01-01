@@ -480,6 +480,21 @@ impl Browser {
         Ok(())
     }
 
+    /// Creates a new incognito browser context with a specified proxy.
+    /// 
+    /// The proxy should be in the format `scheme://host:port` (e.g., `http://10.10.1.1:8080`).
+    /// Note: Authentication via `user:pass@host:port` in `proxy_server` string is generally 
+    /// NOT supported by Chrome directly for contexts. You may need to handle auth challenges separately.
+    pub async fn create_incognito_context_with_proxy(
+        &self,
+        proxy_server: impl Into<String>,
+    ) -> Result<BrowserContextId> {
+        let params = CreateBrowserContextParams::builder()
+            .proxy_server(proxy_server)
+            .build();
+        self.create_browser_context(params).await
+    }
+
     /// Clears cookies.
     pub async fn clear_cookies(&self) -> Result<()> {
         self.execute(ClearCookiesParams::default()).await?;

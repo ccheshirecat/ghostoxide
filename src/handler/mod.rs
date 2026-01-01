@@ -1,5 +1,8 @@
 use std::collections::{HashMap, HashSet};
 use std::pin::Pin;
+use std::sync::Arc;
+use dashmap::DashMap;
+use chromiumoxide_cdp::cdp::js_protocol::runtime::ExecutionContextId;
 use std::time::{Duration, Instant};
 
 use fnv::FnvHashMap;
@@ -83,6 +86,8 @@ pub struct Handler {
     event_listeners: EventListeners,
     /// Keeps track is the browser is closing
     closing: bool,
+    /// Stealth Context Registry
+    contexts: Arc<DashMap<TargetId, ExecutionContextId>>,
 }
 
 impl Handler {
@@ -121,6 +126,7 @@ impl Handler {
             config,
             event_listeners: Default::default(),
             closing: false,
+            contexts: Arc::new(DashMap::new()),
         }
     }
 
@@ -397,6 +403,19 @@ impl Handler {
 
     /// Process an incoming event read from the websocket
     fn on_event(&mut self, event: CdpEventMessage) {
+        // Ghostoxide Stealth: Capture Context ID BEFORE dispatching to target
+        // This must be done first because target.on_event() doesn't return the event
+        if let CdpEvent::RuntimeBindingCalled(ev) = &event.params {
+            if ev.name == "ghost_init" {
+                 if let Some(session_id) = &event.session_id {
+                     if let Some(session) = self.sessions.get(session_id.as_str()) {
+                          // Successfully captured the context ID for this target
+                          self.contexts.insert(session.target_id().clone(), ev.execution_context_id);
+                     }
+                 }
+            }
+        }
+
         if let Some(ref session_id) = event.session_id {
             if let Some(session) = self.sessions.get(session_id.as_str()) {
                 if let Some(target) = self.targets.get_mut(session.target_id()) {
@@ -404,6 +423,7 @@ impl Handler {
                 }
             }
         }
+
         let CdpEventMessage { params, method, .. } = event;
         match params.clone() {
             CdpEvent::TargetTargetCreated(ev) => self.on_target_created(*ev),
@@ -518,6 +538,10 @@ impl Handler {
 
     pub fn event_listeners_mut(&mut self) -> &mut EventListeners {
         &mut self.event_listeners
+    }
+
+    pub fn contexts(&self) -> Arc<DashMap<TargetId, ExecutionContextId>> {
+        self.contexts.clone()
     }
 }
 

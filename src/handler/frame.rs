@@ -13,10 +13,7 @@ use chromiumoxide_cdp::cdp::browser_protocol::page::{
 };
 use chromiumoxide_cdp::cdp::browser_protocol::target::EventAttachedToTarget;
 use chromiumoxide_cdp::cdp::js_protocol::runtime::*;
-use chromiumoxide_cdp::cdp::{
-    browser_protocol::page::{self, FrameId},
-    js_protocol::runtime,
-};
+use chromiumoxide_cdp::cdp::browser_protocol::page::{self, FrameId};
 use chromiumoxide_types::{Method, MethodId, Request};
 
 use crate::error::DeadlineExceeded;
@@ -25,8 +22,8 @@ use crate::handler::http::HttpRequest;
 use crate::handler::REQUEST_TIMEOUT;
 use crate::{cmd::CommandChain, ArcHttpRequest};
 
-pub const UTILITY_WORLD_NAME: &str = "__chromiumoxide_utility_world__";
-const EVALUATION_SCRIPT_URL: &str = "____chromiumoxide_utility_world___evaluation_script__";
+pub const UTILITY_WORLD_NAME: &str = "util";
+const EVALUATION_SCRIPT_URL: &str = "app.js";
 
 /// Represents a frame on the page
 #[derive(Debug)]
@@ -216,7 +213,10 @@ impl FrameManager {
         let enable = page::EnableParams::default();
         let get_tree = page::GetFrameTreeParams::default();
         let set_lifecycle = page::SetLifecycleEventsEnabledParams::new(true);
-        let enable_runtime = runtime::EnableParams::default();
+        
+        // Ghostoxide Stealth: We do NOT enable Runtime here.
+        // Context IDs are obtained via Page.createIsolatedWorld on-demand.
+
         CommandChain::new(
             vec![
                 (enable.identifier(), serde_json::to_value(enable).unwrap()),
@@ -227,10 +227,6 @@ impl FrameManager {
                 (
                     set_lifecycle.identifier(),
                     serde_json::to_value(set_lifecycle).unwrap(),
-                ),
-                (
-                    enable_runtime.identifier(),
-                    serde_json::to_value(enable_runtime).unwrap(),
                 ),
             ],
             timeout,

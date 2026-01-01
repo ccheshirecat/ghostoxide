@@ -137,7 +137,7 @@ impl BrowserConfig {
 impl Default for BrowserConfigBuilder {
     fn default() -> Self {
         Self {
-            headless: HeadlessMode::True,
+            headless: HeadlessMode::False,
             sandbox: true,
             window_size: None,
             port: 0,
@@ -157,7 +157,7 @@ impl Default for BrowserConfigBuilder {
             disable_default_args: false,
             request_intercept: false,
             cache_enabled: true,
-            hidden: false,
+            hidden: true,
         }
     }
 }
@@ -477,7 +477,7 @@ static DEFAULT_ARGS: [ArgConst; 24] = [
     ArgConst::values("force-color-profile", &["srgb"]),
     ArgConst::key("metrics-recording-only"),
     ArgConst::key("no-first-run"),
-    ArgConst::key("enable-automation"),
+    ArgConst::values("user-agent", &["Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36"]),
     ArgConst::values("password-store", &["basic"]),
     ArgConst::key("use-mock-keychain"),
     ArgConst::values("enable-blink-features", &["IdleDetection"]),
