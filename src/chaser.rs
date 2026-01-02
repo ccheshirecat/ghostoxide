@@ -155,10 +155,15 @@ impl ChaserPage {
             .await
             .map_err(|e| anyhow!("{}", e))?;
 
-        // 3. Inject the bootstrap script to run on every new document
+        // 3. Combine profile bootstrap script with Chrome runtime mock
+        let mut stealth_payload = profile.bootstrap_script();
+        stealth_payload.push_str("\n");
+        stealth_payload.push_str(Self::chrome_runtime_mock());
+
+        // 4. Inject the combined stealth script to run on every new document
         self.page
             .execute(AddScriptToEvaluateOnNewDocumentParams {
-                source: profile.bootstrap_script(),
+                source: stealth_payload,
                 world_name: None,
                 include_command_line_api: None,
                 run_immediately: None,
@@ -167,6 +172,52 @@ impl ChaserPage {
             .map_err(|e| anyhow!("{}", e))?;
 
         Ok(())
+    }
+
+    /// Chrome runtime mock - fixes "window.chrome.runtime.connect is not a function"
+    /// which Cloudflare Turnstile checks for.
+    fn chrome_runtime_mock() -> &'static str {
+        r#"
+        (function() {
+            // 1. Ensure window.chrome exists
+            if (!window.chrome) {
+                Object.defineProperty(window, 'chrome', {
+                    writable: true, enumerable: true, configurable: false, value: {}
+                });
+            }
+
+            // 2. Ensure window.chrome.runtime exists
+            if (!window.chrome.runtime) {
+                Object.defineProperty(window.chrome, 'runtime', {
+                    writable: true, enumerable: true, configurable: false, value: {}
+                });
+            }
+
+            // 3. Mock 'connect' - Critical for Cloudflare Turnstile
+            if (!window.chrome.runtime.connect) {
+                const connectMock = function() {
+                    return {
+                        name: '',
+                        onDisconnect: { addListener: function() {}, removeListener: function() {}, hasListener: function() {}, hasListeners: function() {}, dispatch: function() {} },
+                        onMessage: { addListener: function() {}, removeListener: function() {}, hasListener: function() {}, hasListeners: function() {}, dispatch: function() {} },
+                        postMessage: function() {},
+                        disconnect: function() {}
+                    };
+                };
+                Object.defineProperty(window.chrome.runtime, 'connect', {
+                    configurable: false, enumerable: true, writable: true, value: connectMock
+                });
+            }
+
+            // 4. Mock 'sendMessage'
+            if (!window.chrome.runtime.sendMessage) {
+                const sendMessageMock = function() { return; };
+                Object.defineProperty(window.chrome.runtime, 'sendMessage', {
+                    configurable: false, enumerable: true, writable: true, value: sendMessageMock
+                });
+            }
+        })();
+        "#
     }
 
     // ========== REQUEST INTERCEPTION API ==========
