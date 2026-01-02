@@ -174,8 +174,8 @@ impl ChaserPage {
         Ok(())
     }
 
-    /// Chrome runtime mock - fixes "window.chrome.runtime.connect is not a function"
-    /// which Cloudflare Turnstile checks for.
+    /// Complete Chrome object mock for passing bot detection.
+    /// Includes runtime.connect/sendMessage, csi, loadTimes, and app.
     fn chrome_runtime_mock() -> &'static str {
         r#"
         (function() {
@@ -186,14 +186,12 @@ impl ChaserPage {
                 });
             }
 
-            // 2. Ensure window.chrome.runtime exists
+            // 2. Mock 'runtime' with connect and sendMessage
             if (!window.chrome.runtime) {
                 Object.defineProperty(window.chrome, 'runtime', {
                     writable: true, enumerable: true, configurable: false, value: {}
                 });
             }
-
-            // 3. Mock 'connect' - Critical for Cloudflare Turnstile
             if (!window.chrome.runtime.connect) {
                 const connectMock = function() {
                     return {
@@ -208,12 +206,74 @@ impl ChaserPage {
                     configurable: false, enumerable: true, writable: true, value: connectMock
                 });
             }
-
-            // 4. Mock 'sendMessage'
             if (!window.chrome.runtime.sendMessage) {
                 const sendMessageMock = function() { return; };
                 Object.defineProperty(window.chrome.runtime, 'sendMessage', {
                     configurable: false, enumerable: true, writable: true, value: sendMessageMock
+                });
+            }
+
+            // 3. Mock 'csi' (Chrome Session Information)
+            if (!window.chrome.csi) {
+                const csiMock = function() {
+                    return {
+                        startE: Date.now(),
+                        onloadT: Date.now(),
+                        pageT: Date.now(),
+                        tran: 15
+                    };
+                };
+                Object.defineProperty(window.chrome, 'csi', {
+                    configurable: false, enumerable: true, writable: true, value: csiMock
+                });
+            }
+
+            // 4. Mock 'loadTimes'
+            if (!window.chrome.loadTimes) {
+                const loadTimesMock = function() {
+                    return {
+                        requestTime: Date.now() / 1000,
+                        startLoadTime: Date.now() / 1000,
+                        commitLoadTime: Date.now() / 1000,
+                        finishDocumentLoadTime: Date.now() / 1000,
+                        finishLoadTime: Date.now() / 1000,
+                        firstPaintTime: Date.now() / 1000,
+                        firstPaintAfterLoadTime: 0,
+                        navigationType: "Other",
+                        wasFetchedViaSpdy: false,
+                        wasNpnNegotiated: false,
+                        npnNegotiatedProtocol: "",
+                        wasAlternateProtocolAvailable: false,
+                        connectionInfo: "http/1.1"
+                    };
+                };
+                Object.defineProperty(window.chrome, 'loadTimes', {
+                    configurable: false, enumerable: true, writable: true, value: loadTimesMock
+                });
+            }
+
+            // 5. Mock 'app'
+            if (!window.chrome.app) {
+                const appMock = {
+                    isInstalled: false,
+                    InstallState: { DISABLED: 'disabled', INSTALLED: 'installed', NOT_INSTALLED: 'not_installed' },
+                    RunningState: { CANNOT_RUN: 'cannot_run', READY_TO_RUN: 'ready_to_run', RUNNING: 'running' },
+                    getIsInstalled: function() { return false; },
+                    getDetails: function() { return null; }
+                };
+                Object.defineProperty(window.chrome, 'app', {
+                    configurable: false, enumerable: true, writable: true, value: appMock
+                });
+            }
+
+            // 6. Mock 'webstore'
+            if (!window.chrome.webstore) {
+                const webstoreMock = {
+                    onInstallStageChanged: {},
+                    onDownloadProgress: {}
+                };
+                Object.defineProperty(window.chrome, 'webstore', {
+                    configurable: false, enumerable: true, writable: true, value: webstoreMock
                 });
             }
         })();
