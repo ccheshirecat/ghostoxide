@@ -1,5 +1,5 @@
 use anyhow::Result;
-use chaser_oxide::{Browser, BrowserConfig, ChaserPage};
+use chaser_oxide::{Browser, BrowserConfig, ChaserPage, ChaserProfile};
 use futures::StreamExt;
 use std::time::Duration;
 
@@ -8,7 +8,7 @@ async fn main() -> Result<()> {
     println!("Launching chaser-oxide Stealth Browser...");
     let (browser, mut handler) = Browser::launch(
         BrowserConfig::builder()
-            .viewport(None)
+            .with_head() // Show browser for testing
             .build()
             .map_err(|e| anyhow::anyhow!(e))?,
     )
@@ -16,27 +16,28 @@ async fn main() -> Result<()> {
 
     tokio::spawn(async move { while let Some(_) = handler.next().await {} });
 
-    // CRITICAL: Create page with about:blank FIRST
+    // Create profile FIRST
+    let profile = ChaserProfile::windows().build();
+
+    // Create page with about:blank
     println!("Creating page...");
     let page = browser.new_page("about:blank").await?;
 
-    // Apply stealth patches BEFORE navigation
-    // This registers the scripts for all future document loads
-    println!("Applying stealth patches...");
-    page.enable_stealth_mode().await?;
+    // Wrap in ChaserPage and apply full stealth profile
+    // This sets viewport, DPR, UA, and injects all Chrome mocks
+    println!("Applying stealth profile...");
+    let chaser = ChaserPage::new(page);
+    chaser.apply_profile(&profile).await?;
 
     // Small delay to ensure scripts are registered
     tokio::time::sleep(Duration::from_millis(100)).await;
 
     // NOW navigate to the detection test
     println!("Navigating to detection test...");
-    page.goto("https://bot.sannysoft.com").await?;
+    chaser.goto("https://bot.sannysoft.com").await?;
 
     // Wait for page to fully load
     tokio::time::sleep(Duration::from_secs(3)).await;
-
-    // Upgrade to ChaserPage
-    let chaser = ChaserPage::new(page);
 
     // Human-like mouse movement
     println!("Simulating human mouse movement...");
@@ -54,7 +55,7 @@ async fn main() -> Result<()> {
     tokio::time::sleep(Duration::from_secs(5)).await;
 
     chaser
-        .inner()
+        .raw_page()
         .save_screenshot(
             chaser_oxide::page::ScreenshotParams::builder().build(),
             "stealth_test.png",

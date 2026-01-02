@@ -276,6 +276,60 @@ impl ChaserPage {
                     configurable: false, enumerable: true, writable: true, value: webstoreMock
                 });
             }
+
+            // 7. Mock navigator.plugins (PluginArray)
+            const makePlugin = (name, filename, description) => {
+                const plugin = Object.create(Plugin.prototype);
+                Object.defineProperties(plugin, {
+                    name: { value: name, enumerable: true },
+                    filename: { value: filename, enumerable: true },
+                    description: { value: description, enumerable: true },
+                    length: { value: 1, enumerable: true },
+                    0: { value: { type: 'application/pdf', suffixes: 'pdf', description }, enumerable: true }
+                });
+                return plugin;
+            };
+            
+            const fakePlugins = Object.create(PluginArray.prototype);
+            const plugins = [
+                makePlugin('PDF Viewer', 'internal-pdf-viewer', 'Portable Document Format'),
+                makePlugin('Chrome PDF Viewer', 'internal-pdf-viewer', 'Portable Document Format'),
+                makePlugin('Chromium PDF Viewer', 'internal-pdf-viewer', 'Portable Document Format'),
+                makePlugin('Microsoft Edge PDF Viewer', 'internal-pdf-viewer', 'Portable Document Format'),
+                makePlugin('WebKit built-in PDF', 'internal-pdf-viewer', 'Portable Document Format')
+            ];
+            
+            plugins.forEach((p, i) => {
+                Object.defineProperty(fakePlugins, i, { value: p, enumerable: true });
+            });
+            Object.defineProperty(fakePlugins, 'length', { value: plugins.length, enumerable: true });
+            Object.defineProperty(fakePlugins, 'item', { 
+                value: function(index) { return this[index] || null; },
+                enumerable: false
+            });
+            Object.defineProperty(fakePlugins, 'namedItem', { 
+                value: function(name) { 
+                    for (let i = 0; i < this.length; i++) {
+                        if (this[i].name === name) return this[i];
+                    }
+                    return null;
+                },
+                enumerable: false
+            });
+            Object.defineProperty(fakePlugins, 'refresh', { value: function() {}, enumerable: false });
+            Object.defineProperty(fakePlugins, Symbol.iterator, {
+                value: function* () { for (let i = 0; i < this.length; i++) yield this[i]; },
+                enumerable: false
+            });
+            Object.defineProperty(navigator, 'plugins', { get: () => fakePlugins, configurable: true });
+
+            // 8. Mock permissions API
+            const originalQuery = window.navigator.permissions.query;
+            window.navigator.permissions.__proto__.query = parameters => {
+                return parameters.name === 'notifications'
+                    ? Promise.resolve({ state: Notification.permission })
+                    : originalQuery(parameters);
+            };
         })();
         "#
     }
