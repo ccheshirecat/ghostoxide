@@ -142,6 +142,7 @@ pub struct ChaserProfile {
     timezone: String,
     screen_width: u32,
     screen_height: u32,
+    device_pixel_ratio: f32,
 }
 
 impl Default for ChaserProfile {
@@ -154,9 +155,17 @@ impl ChaserProfile {
     /// Create a new profile builder with the specified OS
     #[allow(clippy::new_ret_no_self)]
     pub fn new(os: Os) -> ChaserProfileBuilder {
+        // OS-specific defaults for consistency
+        let (screen_width, screen_height, device_pixel_ratio, cpu_cores) = match os {
+            Os::Windows => (1920, 1080, 1.0, 8),
+            Os::MacOSIntel => (1440, 900, 2.0, 8),
+            Os::MacOSArm => (1728, 1117, 2.0, 14), // M4 Max defaults
+            Os::Linux => (1920, 1080, 1.0, 8),
+        };
+
         ChaserProfileBuilder {
             os,
-            chrome_version: 129,
+            chrome_version: 131, // Keep reasonably current
             gpu: match os {
                 Os::Windows => Gpu::NvidiaRTX3080,
                 Os::MacOSIntel => Gpu::AppleM1Pro,
@@ -164,11 +173,12 @@ impl ChaserProfile {
                 Os::Linux => Gpu::NvidiaGTX1660,
             },
             memory_gb: 8,
-            cpu_cores: 8,
+            cpu_cores,
             locale: "en-US".to_string(),
             timezone: "America/New_York".to_string(),
-            screen_width: 1920,
-            screen_height: 1080,
+            screen_width,
+            screen_height,
+            device_pixel_ratio,
         }
     }
 
@@ -177,14 +187,14 @@ impl ChaserProfile {
         Self::new(Os::Windows)
     }
 
-    /// Create a macOS Intel profile
+    /// Create a macOS Intel profile (realistic MacBook Pro defaults)
     pub fn macos_intel() -> ChaserProfileBuilder {
-        Self::new(Os::MacOSIntel).gpu(Gpu::AppleM1Pro)
+        Self::new(Os::MacOSIntel)
     }
 
-    /// Create a macOS Apple Silicon profile
+    /// Create a macOS Apple Silicon profile (M4 Max defaults from real device)
     pub fn macos_arm() -> ChaserProfileBuilder {
-        Self::new(Os::MacOSArm).gpu(Gpu::AppleM4Max)
+        Self::new(Os::MacOSArm)
     }
 
     /// Create a Linux profile
@@ -219,6 +229,9 @@ impl ChaserProfile {
     }
     pub fn screen_height(&self) -> u32 {
         self.screen_height
+    }
+    pub fn device_pixel_ratio(&self) -> f32 {
+        self.device_pixel_ratio
     }
 
     /// Generate the User-Agent string for this profile
@@ -259,6 +272,28 @@ impl ChaserProfile {
                 }});
                 Object.defineProperty(navigator, 'maxTouchPoints', {{
                     get: () => 0,
+                    configurable: true
+                }});
+
+                // 2b. Screen & DPR (critical for Retina detection)
+                Object.defineProperty(window, 'devicePixelRatio', {{
+                    get: () => {dpr},
+                    configurable: true
+                }});
+                Object.defineProperty(screen, 'width', {{
+                    get: () => {screen_w},
+                    configurable: true
+                }});
+                Object.defineProperty(screen, 'height', {{
+                    get: () => {screen_h},
+                    configurable: true
+                }});
+                Object.defineProperty(screen, 'availWidth', {{
+                    get: () => {screen_w},
+                    configurable: true
+                }});
+                Object.defineProperty(screen, 'availHeight', {{
+                    get: () => {screen_h},
                     configurable: true
                 }});
 
@@ -309,6 +344,9 @@ impl ChaserProfile {
             platform = self.os.platform(),
             cores = self.cpu_cores,
             memory = self.memory_gb,
+            dpr = self.device_pixel_ratio,
+            screen_w = self.screen_width,
+            screen_h = self.screen_height,
             webgl_vendor = self.gpu.vendor(),
             webgl_renderer = self.gpu.renderer(),
             chrome_ver = self.chrome_version,
@@ -339,6 +377,7 @@ pub struct ChaserProfileBuilder {
     timezone: String,
     screen_width: u32,
     screen_height: u32,
+    device_pixel_ratio: f32,
 }
 
 impl ChaserProfileBuilder {
@@ -385,6 +424,12 @@ impl ChaserProfileBuilder {
         self
     }
 
+    /// Set device pixel ratio (1.0 for standard, 2.0 for Retina/HiDPI)
+    pub fn device_pixel_ratio(mut self, dpr: f32) -> Self {
+        self.device_pixel_ratio = dpr;
+        self
+    }
+
     /// Build the final profile
     pub fn build(self) -> ChaserProfile {
         ChaserProfile {
@@ -397,6 +442,7 @@ impl ChaserProfileBuilder {
             timezone: self.timezone,
             screen_width: self.screen_width,
             screen_height: self.screen_height,
+            device_pixel_ratio: self.device_pixel_ratio,
         }
     }
 }
