@@ -1,35 +1,13 @@
 use anyhow::Result;
-use chaser_oxide::{Browser, BrowserConfig, ChaserPage, ChaserProfile};
-use futures::StreamExt;
+use chaser_oxide::{ChaserPage, Os};
 use std::time::Duration;
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    // Create profile FIRST
-    let profile = ChaserProfile::windows().build();
-
     println!("Launching chaser-oxide Stealth Browser...");
-    // Use profile.configure_browser() to automatically set window size and stealth args
-    let (browser, mut handler) = Browser::launch(
-        profile
-            .configure_browser(BrowserConfig::builder())
-            .with_head() // Show browser for testing
-            .build()
-            .map_err(|e| anyhow::anyhow!(e))?,
-    )
-    .await?;
-
-    tokio::spawn(async move { while let Some(_) = handler.next().await {} });
-
-    // Create page with about:blank
-    println!("Creating page...");
-    let page = browser.new_page("about:blank").await?;
-
-    // Wrap in ChaserPage and apply full stealth profile
-    // This sets viewport, DPR, UA, and injects all Chrome mocks
-    println!("Applying stealth profile...");
-    let chaser = ChaserPage::new(page);
-    chaser.apply_profile(&profile).await?;
+    
+    // ONE LINE. That's it. Browser launched, profile applied, ready to go.
+    let chaser = ChaserPage::launch_headed(Os::Windows).await?;
 
     // Small delay to ensure scripts are registered
     tokio::time::sleep(Duration::from_millis(100)).await;

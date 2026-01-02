@@ -238,7 +238,7 @@ impl ChaserProfile {
     /// 
     /// This sets:
     /// - Window size to match screen dimensions (prevents geometric leaks)
-    /// - Stealth args like --disable-blink-features=AutomationControlled
+    /// - Stealth args for anti-detection
     /// 
     /// # Example
     /// ```rust
@@ -254,7 +254,12 @@ impl ChaserProfile {
         builder
             .window_size(self.screen_width, self.screen_height)
             .args(vec![
+                // Hide automation indicators
                 "--disable-blink-features=AutomationControlled".to_string(),
+                // Hide the automation infobar
+                "--disable-infobars".to_string(),
+                // Explicit window size as backup (belt and suspenders)
+                format!("--window-size={},{}", self.screen_width, self.screen_height),
             ])
     }
 
@@ -353,6 +358,17 @@ impl ChaserProfile {
                 }});
                 Object.defineProperty(screen, 'availHeight', {{
                     get: makeNative(function() {{ return {screen_h}; }}, 'get availHeight'),
+                    configurable: true
+                }});
+
+                // Spoof outerWidth/outerHeight to match (prevents TARDIS effect)
+                // outerWidth should be >= innerWidth, add ~100px for browser chrome
+                Object.defineProperty(window, 'outerWidth', {{
+                    get: makeNative(function() {{ return {screen_w}; }}, 'get outerWidth'),
+                    configurable: true
+                }});
+                Object.defineProperty(window, 'outerHeight', {{
+                    get: makeNative(function() {{ return {screen_h} + 85; }}, 'get outerHeight'),
                     configurable: true
                 }});
 

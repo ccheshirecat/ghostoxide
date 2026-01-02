@@ -1,3 +1,4 @@
+use crate::browser::{Browser, BrowserConfig};
 use crate::page::Page;
 use crate::profiles::ChaserProfile;
 use anyhow::{anyhow, Result};
@@ -15,6 +16,7 @@ use chromiumoxide_cdp::cdp::browser_protocol::page::{
     AddScriptToEvaluateOnNewDocumentParams, CreateIsolatedWorldParams,
 };
 use chromiumoxide_cdp::cdp::js_protocol::runtime::EvaluateParams;
+use futures::StreamExt;
 use rand::Rng;
 use serde_json::Value;
 use std::sync::{Arc, Mutex};
@@ -57,6 +59,77 @@ impl ChaserPage {
             page,
             mouse_pos: Arc::new(Mutex::new(Point { x: 0.0, y: 0.0 })),
         }
+    }
+
+    /// Launch a fully configured stealth browser in ONE call.
+    /// 
+    /// This handles EVERYTHING:
+    /// - Launches browser with correct window size
+    /// - Sets all stealth args (--disable-blink-features=AutomationControlled, etc.)
+    /// - Creates page with profile applied
+    /// - Spawns the browser handler
+    /// 
+    /// # Example
+    /// ```rust
+    /// // That's it. One line.
+    /// let chaser = ChaserPage::launch(Os::Windows).await?;
+    /// chaser.goto("https://example.com").await?;
+    /// ```
+    pub async fn launch(os: crate::profiles::Os) -> Result<Self> {
+        Self::launch_with_profile(ChaserProfile::new(os).build()).await
+    }
+
+    /// Launch with a custom profile (if you need to tweak settings).
+    /// 
+    /// # Example
+    /// ```rust
+    /// let profile = ChaserProfile::windows()
+    ///     .chrome_version(130)
+    ///     .build();
+    /// let chaser = ChaserPage::launch_with_profile(profile).await?;
+    /// ```
+    pub async fn launch_with_profile(profile: ChaserProfile) -> Result<Self> {
+        Self::launch_internal(profile, false).await
+    }
+
+    /// Launch with visible browser (for debugging).
+    pub async fn launch_headed(os: crate::profiles::Os) -> Result<Self> {
+        Self::launch_internal(ChaserProfile::new(os).build(), true).await
+    }
+
+    /// Internal launch implementation
+    async fn launch_internal(profile: ChaserProfile, headed: bool) -> Result<Self> {
+        // Build browser config with ALL the right settings
+        let mut builder = BrowserConfig::builder()
+            .window_size(profile.screen_width(), profile.screen_height())
+            .args(vec![
+                "--disable-blink-features=AutomationControlled".to_string(),
+                "--disable-infobars".to_string(),
+                format!("--window-size={},{}", profile.screen_width(), profile.screen_height()),
+            ]);
+
+        if headed {
+            builder = builder.with_head();
+        }
+
+        let config = builder.build().map_err(|e| anyhow!("{}", e))?;
+
+        // Launch browser
+        let (browser, mut handler) = Browser::launch(config).await?;
+
+        // Spawn handler (required for browser to work)
+        tokio::spawn(async move {
+            while let Some(_) = handler.next().await {}
+        });
+
+        // Create page with about:blank first
+        let page = browser.new_page("about:blank").await?;
+        
+        // Wrap and apply profile
+        let chaser = Self::new(page);
+        chaser.apply_profile(&profile).await?;
+
+        Ok(chaser)
     }
 
     // ========== SAFE PAGE ACCESS ==========
