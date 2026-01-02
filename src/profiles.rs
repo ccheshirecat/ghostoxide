@@ -234,6 +234,30 @@ impl ChaserProfile {
         self.device_pixel_ratio
     }
 
+    /// Configure a BrowserConfigBuilder with this profile's recommended settings.
+    /// 
+    /// This sets:
+    /// - Window size to match screen dimensions (prevents geometric leaks)
+    /// - Stealth args like --disable-blink-features=AutomationControlled
+    /// 
+    /// # Example
+    /// ```rust
+    /// let profile = ChaserProfile::windows().build();
+    /// let config = profile.configure_browser(BrowserConfig::builder())
+    ///     .with_head()
+    ///     .build()?;
+    /// ```
+    pub fn configure_browser(
+        &self,
+        builder: crate::browser::BrowserConfigBuilder,
+    ) -> crate::browser::BrowserConfigBuilder {
+        builder
+            .window_size(self.screen_width, self.screen_height)
+            .args(vec![
+                "--disable-blink-features=AutomationControlled".to_string(),
+            ])
+    }
+
     /// Generate the User-Agent string for this profile
     pub fn user_agent(&self) -> String {
         let os_part = match self.os {
@@ -415,12 +439,9 @@ impl ChaserProfile {
                     return originalCanPlayType.apply(this, arguments);
                 }}, 'canPlayType');
 
-                // ========== 6. WEBDRIVER ==========
+                // ========== 6. WEBDRIVER (DELETE ONLY - don't mock it) ==========
+                // Just kill it. Don't redefine - that creates a detectable property descriptor.
                 try {{ delete Object.getPrototypeOf(navigator).webdriver; }} catch(e) {{}}
-                Object.defineProperty(navProto, 'webdriver', {{
-                    get: makeNative(function() {{ return undefined; }}, 'get webdriver'),
-                    configurable: true, enumerable: true
-                }});
 
                 // ========== 7. TIMEZONE & LOCALE ==========
                 Object.defineProperty(navProto, 'language', {{

@@ -5,9 +5,14 @@ use std::time::Duration;
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    // Create profile FIRST
+    let profile = ChaserProfile::windows().build();
+
     println!("Launching chaser-oxide Stealth Browser...");
+    // Use profile.configure_browser() to automatically set window size and stealth args
     let (browser, mut handler) = Browser::launch(
-        BrowserConfig::builder()
+        profile
+            .configure_browser(BrowserConfig::builder())
             .with_head() // Show browser for testing
             .build()
             .map_err(|e| anyhow::anyhow!(e))?,
@@ -15,9 +20,6 @@ async fn main() -> Result<()> {
     .await?;
 
     tokio::spawn(async move { while let Some(_) = handler.next().await {} });
-
-    // Create profile FIRST
-    let profile = ChaserProfile::windows().build();
 
     // Create page with about:blank
     println!("Creating page...");
