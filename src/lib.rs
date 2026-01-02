@@ -101,9 +101,6 @@ pub type ArcHttpRequest = Option<Arc<HttpRequest>>;
 pub mod chaser;
 pub use crate::chaser::*;
 
-pub mod stealth;
-pub use crate::stealth::*;
-
 pub mod profiles;
 pub use crate::profiles::*;
 

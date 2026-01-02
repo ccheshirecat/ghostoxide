@@ -174,110 +174,148 @@ impl ChaserPage {
         Ok(())
     }
 
-    /// Complete Chrome object mock for passing bot detection.
-    /// Includes runtime.connect/sendMessage, csi, loadTimes, and app.
+    /// Complete stealth mock for passing bot detection.
+    /// Includes Chrome APIs, plugins, permissions, and CDP marker cleanup.
     fn chrome_runtime_mock() -> &'static str {
         r#"
         (function() {
-            // 1. Ensure window.chrome exists
+            // === HELPER: Make functions appear native (recursive toString protection) ===
+            const makeNative = (func, name) => {
+                // 1. Rename the function
+                Object.defineProperty(func, 'name', { value: name });
+                
+                // 2. Create the "native" string
+                const nativeStr = `function ${name}() { [native code] }`;
+                
+                // 3. Create the toString function
+                const newToString = function() { return nativeStr; };
+                
+                // 4. Spoof toString of toString (prevents toString.toString() leak)
+                Object.defineProperty(newToString, 'toString', {
+                    value: function() { return "function toString() { [native code] }"; }
+                });
+                Object.defineProperty(newToString, 'name', { value: 'toString' });
+                
+                // 5. Apply it
+                Object.defineProperty(func, 'toString', {
+                    value: newToString,
+                    writable: true, enumerable: false, configurable: true
+                });
+                
+                return func;
+            };
+
+            // === CDP/AUTOMATION MARKER CLEANUP ===
+            // Remove any cdc_ markers (Chrome DevTools Protocol)
+            const cleanCDPMarkers = () => {
+                // Window markers
+                for (const prop of Object.keys(window)) {
+                    if (prop.match(/^cdc_|^\$cdc_|^__webdriver|^__selenium|^__driver/)) {
+                        try { delete window[prop]; } catch(e) {}
+                    }
+                }
+                // Document markers
+                for (const prop of Object.keys(document)) {
+                    if (prop.match(/^\$cdc_|^__webdriver|^__selenium|^__driver|^\$chrome_/)) {
+                        try { delete document[prop]; } catch(e) {}
+                    }
+                }
+            };
+            cleanCDPMarkers();
+            // Re-run periodically in case markers are re-added
+            setInterval(cleanCDPMarkers, 100);
+
+            // === 1. WINDOW.CHROME ===
             if (!window.chrome) {
                 Object.defineProperty(window, 'chrome', {
                     writable: true, enumerable: true, configurable: false, value: {}
                 });
             }
 
-            // 2. Mock 'runtime' with connect and sendMessage
+            // 2. Runtime with connect and sendMessage
             if (!window.chrome.runtime) {
                 Object.defineProperty(window.chrome, 'runtime', {
                     writable: true, enumerable: true, configurable: false, value: {}
                 });
             }
             if (!window.chrome.runtime.connect) {
-                const connectMock = function() {
-                    return {
-                        name: '',
-                        onDisconnect: { addListener: function() {}, removeListener: function() {}, hasListener: function() {}, hasListeners: function() {}, dispatch: function() {} },
-                        onMessage: { addListener: function() {}, removeListener: function() {}, hasListener: function() {}, hasListeners: function() {}, dispatch: function() {} },
-                        postMessage: function() {},
-                        disconnect: function() {}
-                    };
-                };
                 Object.defineProperty(window.chrome.runtime, 'connect', {
-                    configurable: false, enumerable: true, writable: true, value: connectMock
+                    configurable: false, enumerable: true, writable: true,
+                    value: makeNative(function() {
+                        return {
+                            name: '',
+                            onDisconnect: { addListener: function(){}, removeListener: function(){}, hasListener: function(){}, hasListeners: function(){}, dispatch: function(){} },
+                            onMessage: { addListener: function(){}, removeListener: function(){}, hasListener: function(){}, hasListeners: function(){}, dispatch: function(){} },
+                            postMessage: function(){},
+                            disconnect: function(){}
+                        };
+                    }, 'connect')
                 });
             }
             if (!window.chrome.runtime.sendMessage) {
-                const sendMessageMock = function() { return; };
                 Object.defineProperty(window.chrome.runtime, 'sendMessage', {
-                    configurable: false, enumerable: true, writable: true, value: sendMessageMock
+                    configurable: false, enumerable: true, writable: true,
+                    value: makeNative(function() { return; }, 'sendMessage')
                 });
             }
 
-            // 3. Mock 'csi' (Chrome Session Information)
+            // 3. CSI (Chrome Session Information)
             if (!window.chrome.csi) {
-                const csiMock = function() {
-                    return {
-                        startE: Date.now(),
-                        onloadT: Date.now(),
-                        pageT: Date.now(),
-                        tran: 15
-                    };
-                };
                 Object.defineProperty(window.chrome, 'csi', {
-                    configurable: false, enumerable: true, writable: true, value: csiMock
+                    configurable: false, enumerable: true, writable: true,
+                    value: makeNative(function() {
+                        return { startE: Date.now(), onloadT: Date.now(), pageT: Date.now(), tran: 15 };
+                    }, 'csi')
                 });
             }
 
-            // 4. Mock 'loadTimes'
+            // 4. LoadTimes
             if (!window.chrome.loadTimes) {
-                const loadTimesMock = function() {
-                    return {
-                        requestTime: Date.now() / 1000,
-                        startLoadTime: Date.now() / 1000,
-                        commitLoadTime: Date.now() / 1000,
-                        finishDocumentLoadTime: Date.now() / 1000,
-                        finishLoadTime: Date.now() / 1000,
-                        firstPaintTime: Date.now() / 1000,
-                        firstPaintAfterLoadTime: 0,
-                        navigationType: "Other",
-                        wasFetchedViaSpdy: false,
-                        wasNpnNegotiated: false,
-                        npnNegotiatedProtocol: "",
-                        wasAlternateProtocolAvailable: false,
-                        connectionInfo: "http/1.1"
-                    };
-                };
                 Object.defineProperty(window.chrome, 'loadTimes', {
-                    configurable: false, enumerable: true, writable: true, value: loadTimesMock
+                    configurable: false, enumerable: true, writable: true,
+                    value: makeNative(function() {
+                        return {
+                            requestTime: Date.now() / 1000,
+                            startLoadTime: Date.now() / 1000,
+                            commitLoadTime: Date.now() / 1000,
+                            finishDocumentLoadTime: Date.now() / 1000,
+                            finishLoadTime: Date.now() / 1000,
+                            firstPaintTime: Date.now() / 1000,
+                            firstPaintAfterLoadTime: 0,
+                            navigationType: "Other",
+                            wasFetchedViaSpdy: false,
+                            wasNpnNegotiated: false,
+                            npnNegotiatedProtocol: "",
+                            wasAlternateProtocolAvailable: false,
+                            connectionInfo: "http/1.1"
+                        };
+                    }, 'loadTimes')
                 });
             }
 
-            // 5. Mock 'app'
+            // 5. App
             if (!window.chrome.app) {
                 const appMock = {
                     isInstalled: false,
                     InstallState: { DISABLED: 'disabled', INSTALLED: 'installed', NOT_INSTALLED: 'not_installed' },
                     RunningState: { CANNOT_RUN: 'cannot_run', READY_TO_RUN: 'ready_to_run', RUNNING: 'running' },
-                    getIsInstalled: function() { return false; },
-                    getDetails: function() { return null; }
+                    getIsInstalled: makeNative(function() { return false; }, 'getIsInstalled'),
+                    getDetails: makeNative(function() { return null; }, 'getDetails')
                 };
                 Object.defineProperty(window.chrome, 'app', {
                     configurable: false, enumerable: true, writable: true, value: appMock
                 });
             }
 
-            // 6. Mock 'webstore'
+            // 6. Webstore
             if (!window.chrome.webstore) {
-                const webstoreMock = {
-                    onInstallStageChanged: {},
-                    onDownloadProgress: {}
-                };
                 Object.defineProperty(window.chrome, 'webstore', {
-                    configurable: false, enumerable: true, writable: true, value: webstoreMock
+                    configurable: false, enumerable: true, writable: true,
+                    value: { onInstallStageChanged: {}, onDownloadProgress: {} }
                 });
             }
 
-            // 7. Mock navigator.plugins (PluginArray)
+            // === PLUGINS (with native toString) ===
             const makePlugin = (name, filename, description) => {
                 const plugin = Object.create(Plugin.prototype);
                 Object.defineProperties(plugin, {
@@ -291,7 +329,7 @@ impl ChaserPage {
             };
             
             const fakePlugins = Object.create(PluginArray.prototype);
-            const plugins = [
+            const pluginList = [
                 makePlugin('PDF Viewer', 'internal-pdf-viewer', 'Portable Document Format'),
                 makePlugin('Chrome PDF Viewer', 'internal-pdf-viewer', 'Portable Document Format'),
                 makePlugin('Chromium PDF Viewer', 'internal-pdf-viewer', 'Portable Document Format'),
@@ -299,37 +337,69 @@ impl ChaserPage {
                 makePlugin('WebKit built-in PDF', 'internal-pdf-viewer', 'Portable Document Format')
             ];
             
-            plugins.forEach((p, i) => {
+            pluginList.forEach((p, i) => {
                 Object.defineProperty(fakePlugins, i, { value: p, enumerable: true });
             });
-            Object.defineProperty(fakePlugins, 'length', { value: plugins.length, enumerable: true });
+            Object.defineProperty(fakePlugins, 'length', { value: pluginList.length, enumerable: true });
             Object.defineProperty(fakePlugins, 'item', { 
-                value: function(index) { return this[index] || null; },
+                value: makeNative(function(index) { return this[index] || null; }, 'item'),
                 enumerable: false
             });
             Object.defineProperty(fakePlugins, 'namedItem', { 
-                value: function(name) { 
+                value: makeNative(function(name) { 
                     for (let i = 0; i < this.length; i++) {
                         if (this[i].name === name) return this[i];
                     }
                     return null;
-                },
+                }, 'namedItem'),
                 enumerable: false
             });
-            Object.defineProperty(fakePlugins, 'refresh', { value: function() {}, enumerable: false });
+            Object.defineProperty(fakePlugins, 'refresh', { 
+                value: makeNative(function() {}, 'refresh'),
+                enumerable: false 
+            });
             Object.defineProperty(fakePlugins, Symbol.iterator, {
                 value: function* () { for (let i = 0; i < this.length; i++) yield this[i]; },
                 enumerable: false
             });
-            Object.defineProperty(navigator, 'plugins', { get: () => fakePlugins, configurable: true });
+            
+            const navProto = Object.getPrototypeOf(navigator);
+            Object.defineProperty(navProto, 'plugins', { 
+                get: makeNative(function() { return fakePlugins; }, 'get plugins'),
+                configurable: true,
+                enumerable: true
+            });
 
-            // 8. Mock permissions API
-            const originalQuery = window.navigator.permissions.query;
-            window.navigator.permissions.__proto__.query = parameters => {
-                return parameters.name === 'notifications'
-                    ? Promise.resolve({ state: Notification.permission })
-                    : originalQuery(parameters);
-            };
+            // === PERMISSIONS API ===
+            try {
+                const originalQuery = window.navigator.permissions.query;
+                Object.defineProperty(window.navigator.permissions.__proto__, 'query', {
+                    value: makeNative(function(parameters) {
+                        return parameters.name === 'notifications'
+                            ? Promise.resolve({ state: Notification.permission })
+                            : originalQuery.call(this, parameters);
+                    }, 'query'),
+                    writable: true,
+                    configurable: true
+                });
+            } catch(e) {}
+
+            // === IFRAME PROTECTION ===
+            // Ensure iframes also have chrome object
+            const originalCreateElement = document.createElement;
+            document.createElement = makeNative(function(...args) {
+                const element = originalCreateElement.apply(this, args);
+                if (args[0].toLowerCase() === 'iframe') {
+                    element.addEventListener('load', () => {
+                        try {
+                            if (element.contentWindow && !element.contentWindow.chrome) {
+                                element.contentWindow.chrome = window.chrome;
+                            }
+                        } catch(e) {}
+                    });
+                }
+                return element;
+            }, 'createElement');
         })();
         "#
     }
