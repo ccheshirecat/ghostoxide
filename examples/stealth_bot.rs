@@ -7,7 +7,7 @@ async fn main() -> Result<()> {
     println!("Launching chaser-oxide Stealth Browser...");
     
     // ONE LINE. That's it. Browser launched, profile applied, ready to go.
-    let chaser = ChaserPage::launch_headed(Os::Windows).await?;
+    let (_browser, chaser) = ChaserPage::launch_headed(Os::Windows).await?;
 
     // Small delay to ensure scripts are registered
     tokio::time::sleep(Duration::from_millis(100)).await;

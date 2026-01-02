@@ -69,13 +69,16 @@ impl ChaserPage {
     /// - Creates page with profile applied
     /// - Spawns the browser handler
     /// 
+    /// Returns (Browser, ChaserPage) so you have full access to both.
+    /// 
     /// # Example
     /// ```rust
     /// // That's it. One line.
-    /// let chaser = ChaserPage::launch(Os::Windows).await?;
+    /// let (browser, chaser) = ChaserPage::launch(Os::Windows).await?;
     /// chaser.goto("https://example.com").await?;
+    /// let cookies = browser.get_cookies().await?;
     /// ```
-    pub async fn launch(os: crate::profiles::Os) -> Result<Self> {
+    pub async fn launch(os: crate::profiles::Os) -> Result<(Browser, Self)> {
         Self::launch_with_profile(ChaserProfile::new(os).build()).await
     }
 
@@ -86,19 +89,19 @@ impl ChaserPage {
     /// let profile = ChaserProfile::windows()
     ///     .chrome_version(130)
     ///     .build();
-    /// let chaser = ChaserPage::launch_with_profile(profile).await?;
+    /// let (browser, chaser) = ChaserPage::launch_with_profile(profile).await?;
     /// ```
-    pub async fn launch_with_profile(profile: ChaserProfile) -> Result<Self> {
+    pub async fn launch_with_profile(profile: ChaserProfile) -> Result<(Browser, Self)> {
         Self::launch_internal(profile, false).await
     }
 
     /// Launch with visible browser (for debugging).
-    pub async fn launch_headed(os: crate::profiles::Os) -> Result<Self> {
+    pub async fn launch_headed(os: crate::profiles::Os) -> Result<(Browser, Self)> {
         Self::launch_internal(ChaserProfile::new(os).build(), true).await
     }
 
     /// Internal launch implementation
-    async fn launch_internal(profile: ChaserProfile, headed: bool) -> Result<Self> {
+    async fn launch_internal(profile: ChaserProfile, headed: bool) -> Result<(Browser, Self)> {
         // Build browser config with ALL the right settings
         let mut builder = BrowserConfig::builder()
             .window_size(profile.screen_width(), profile.screen_height())
@@ -129,7 +132,7 @@ impl ChaserPage {
         let chaser = Self::new(page);
         chaser.apply_profile(&profile).await?;
 
-        Ok(chaser)
+        Ok((browser, chaser))
     }
 
     // ========== SAFE PAGE ACCESS ==========
