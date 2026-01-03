@@ -282,370 +282,60 @@ impl ChaserProfile {
         format!(
             r#"
             (function() {{
-                // === chaser-oxide "GOD MODE" STEALTH (UNIFIED) ===
-                // Profile: {ua}
-
-                // ========== HELPER: Make functions appear native ==========
-                // Recursive toString protection - prevents func.toString.toString() leak
-                const makeNative = (func, name) => {{
-                    Object.defineProperty(func, 'name', {{ value: name }});
-                    const nativeStr = `function ${{name}}() {{ [native code] }}`;
-                    const newToString = function() {{ return nativeStr; }};
-                    Object.defineProperty(newToString, 'toString', {{
-                        value: function() {{ return "function toString() {{ [native code] }}"; }}
-                    }});
-                    Object.defineProperty(newToString, 'name', {{ value: 'toString' }});
-                    Object.defineProperty(func, 'toString', {{
-                        value: newToString,
-                        writable: true, enumerable: false, configurable: true
-                    }});
-                    return func;
-                }};
-
-                // ========== CDP/AUTOMATION MARKER CLEANUP (ONCE AT STARTUP) ==========
-                const cleanCDPMarkers = () => {{
-                    // Use getOwnPropertyNames for more thorough enumeration
-                    const windowProps = Object.getOwnPropertyNames(window);
-                    for (const prop of windowProps) {{
-                        if (prop.match(/^cdc_|^\\$cdc_|^__webdriver|^__selenium|^__driver|^\\$chrome_/)) {{
-                            try {{ delete window[prop]; }} catch(e) {{}}
-                        }}
-                    }}
-                    const docProps = Object.getOwnPropertyNames(document);
-                    for (const prop of docProps) {{
-                        if (prop.match(/^cdc_|^\\$cdc_|^__webdriver|^__selenium|^__driver|^\\$chrome_/)) {{
-                            try {{ delete document[prop]; }} catch(e) {{}}
-                        }}
-                    }}
-                }};
-                // Run exactly once before site loads - NO setInterval
-                cleanCDPMarkers();
-
-                // Get Navigator prototype
-                const navProto = Object.getPrototypeOf(navigator);
-
-                // ========== 1. PLATFORM & HARDWARE ==========
-                Object.defineProperty(navProto, 'platform', {{
-                    get: makeNative(function() {{ return '{platform}'; }}, 'get platform'),
-                    configurable: true, enumerable: true
-                }});
-                Object.defineProperty(navProto, 'hardwareConcurrency', {{
-                    get: makeNative(function() {{ return {cores}; }}, 'get hardwareConcurrency'),
-                    configurable: true, enumerable: true
-                }});
-                Object.defineProperty(navProto, 'deviceMemory', {{
-                    get: makeNative(function() {{ return {memory}; }}, 'get deviceMemory'),
-                    configurable: true, enumerable: true
-                }});
-                Object.defineProperty(navProto, 'maxTouchPoints', {{
-                    get: makeNative(function() {{ return 0; }}, 'get maxTouchPoints'),
-                    configurable: true, enumerable: true
-                }});
-
-                // ========== 2. SCREEN & DPR ==========
-                Object.defineProperty(window, 'devicePixelRatio', {{
-                    get: makeNative(function() {{ return {dpr}; }}, 'get devicePixelRatio'),
-                    configurable: true, enumerable: true
-                }});
-                Object.defineProperty(screen, 'width', {{
-                    get: makeNative(function() {{ return {screen_w}; }}, 'get width'),
-                    configurable: true
-                }});
-                Object.defineProperty(screen, 'height', {{
-                    get: makeNative(function() {{ return {screen_h}; }}, 'get height'),
-                    configurable: true
-                }});
-                Object.defineProperty(screen, 'availWidth', {{
-                    get: makeNative(function() {{ return {screen_w}; }}, 'get availWidth'),
-                    configurable: true
-                }});
-                Object.defineProperty(screen, 'availHeight', {{
-                    get: makeNative(function() {{ return {screen_h}; }}, 'get availHeight'),
-                    configurable: true
-                }});
-
-                // Spoof outerWidth/outerHeight to match (prevents TARDIS effect)
-                Object.defineProperty(window, 'outerWidth', {{
-                    get: makeNative(function() {{ return {screen_w}; }}, 'get outerWidth'),
-                    configurable: true
-                }});
-                Object.defineProperty(window, 'outerHeight', {{
-                    get: makeNative(function() {{ return {screen_h} + 85; }}, 'get outerHeight'),
-                    configurable: true
-                }});
-
-                // ========== 3. WEBGL ==========
-                const spoofWebGL = (proto) => {{
-                    const originalGetParameter = proto.getParameter;
-                    proto.getParameter = makeNative(function(parameter) {{
-                        try {{
-                            if (parameter === 37445) return '{webgl_vendor}';
-                            if (parameter === 37446) return '{webgl_renderer}';
-                            return originalGetParameter.apply(this, arguments);
-                        }} catch(e) {{
-                            if (e && e.stack) {{
-                                e.stack = e.stack.split('\\n').filter(line => 
-                                    !line.includes('Object.apply') && !line.includes('<anonymous>')
-                                ).join('\\n');
-                            }}
-                            throw e;
-                        }}
-                    }}, 'getParameter');
-                }};
+                // === MINIMAL STEALTH: Pure data, no makeNative wrappers ===
+                // Turnstile detects function wrapping - use simple arrow functions only
+                
                 try {{
-                    spoofWebGL(WebGLRenderingContext.prototype);
-                    if (typeof WebGL2RenderingContext !== 'undefined') {{
-                        spoofWebGL(WebGL2RenderingContext.prototype);
+                    // 1. HARDWARE (simple getters)
+                    Object.defineProperty(navigator, 'hardwareConcurrency', {{
+                        get: () => {cores},
+                        configurable: true, enumerable: true
+                    }});
+                    Object.defineProperty(navigator, 'deviceMemory', {{
+                        get: () => {memory},
+                        configurable: true, enumerable: true
+                    }});
+
+                    // 2. PLATFORM
+                    Object.defineProperty(navigator, 'platform', {{
+                        get: () => '{platform}',
+                        configurable: true, enumerable: true
+                    }});
+
+                    // 3. WEBDRIVER = false (critical)
+                    Object.defineProperty(navigator, 'webdriver', {{
+                        get: () => false,
+                        configurable: true, enumerable: true
+                    }});
+
+                    // 4. WEBGL (minimal override)
+                    const getParam = WebGLRenderingContext.prototype.getParameter;
+                    WebGLRenderingContext.prototype.getParameter = function(p) {{
+                        if (p === 37445) return '{webgl_vendor}';
+                        if (p === 37446) return '{webgl_renderer}';
+                        return getParam.apply(this, arguments);
+                    }};
+
+                    // 5. CHROME OBJECT (minimal)
+                    if (!window.chrome) {{
+                        window.chrome = {{ runtime: {{}} }};
                     }}
-                }} catch(e) {{}}
 
-                // ========== 4. CLIENT HINTS (userAgentData) ==========
-                Object.defineProperty(navProto, 'userAgentData', {{
-                    get: makeNative(function() {{
-                        return {{
-                            brands: [
-                                {{ brand: "Google Chrome", version: "{chrome_ver}" }},
-                                {{ brand: "Chromium", version: "{chrome_ver}" }},
-                                {{ brand: "Not=A?Brand", version: "24" }}
-                            ],
-                            mobile: false,
-                            platform: "{hints_platform}",
-                            getHighEntropyValues: makeNative(async function(hints) {{
-                                return {{
-                                    architecture: "x86",
-                                    bitness: "64",
-                                    brands: [
-                                        {{ brand: "Google Chrome", version: "{chrome_ver}" }},
-                                        {{ brand: "Chromium", version: "{chrome_ver}" }},
-                                        {{ brand: "Not=A?Brand", version: "24" }}
-                                    ],
-                                    fullVersionList: [
-                                        {{ brand: "Google Chrome", version: "{chrome_ver}.0.0.0" }},
-                                        {{ brand: "Chromium", version: "{chrome_ver}.0.0.0" }},
-                                        {{ brand: "Not=A?Brand", version: "24.0.0.0" }}
-                                    ],
-                                    mobile: false,
-                                    model: "",
-                                    platform: "{hints_platform}",
-                                    platformVersion: "10.0.0",
-                                    uaFullVersion: "{chrome_ver}.0.0.0"
-                                }};
-                            }}, 'getHighEntropyValues'),
-                            toJSON: makeNative(function() {{
-                                return {{
-                                    brands: [
-                                        {{ brand: "Google Chrome", version: "{chrome_ver}" }},
-                                        {{ brand: "Chromium", version: "{chrome_ver}" }},
-                                        {{ brand: "Not=A?Brand", version: "24" }}
-                                    ],
-                                    mobile: false,
-                                    platform: "{hints_platform}"
-                                }};
-                            }}, 'toJSON')
-                        }};
-                    }}, 'get userAgentData'),
-                    configurable: true, enumerable: true
-                }});
-
-                // ========== 5. VIDEO CODECS ==========
-                const originalCanPlayType = HTMLMediaElement.prototype.canPlayType;
-                HTMLMediaElement.prototype.canPlayType = makeNative(function(type) {{
-                    if (!type) return originalCanPlayType.apply(this, arguments);
-                    if (type.includes('avc1') || type.includes('mp4a.40') || type === 'video/mp4' || type === 'audio/mp4') {{
-                        return 'probably';
-                    }}
-                    return originalCanPlayType.apply(this, arguments);
-                }}, 'canPlayType');
-
-                // ========== 6. WEBDRIVER (SET TO FALSE) ==========
-                // Deleting creates undefined which is DETECTABLE by rebrowser-bot-detector!
-                // Real browsers have navigator.webdriver = false
-                Object.defineProperty(navProto, 'webdriver', {{
-                    get: makeNative(function() {{ return false; }}, 'get webdriver'),
-                    configurable: true, enumerable: true
-                }});
-
-                // ========== 7. TIMEZONE & LOCALE ==========
-                Object.defineProperty(navProto, 'language', {{
-                    get: makeNative(function() {{ return '{locale}'; }}, 'get language'),
-                    configurable: true, enumerable: true
-                }});
-                Object.defineProperty(navProto, 'languages', {{
-                    get: makeNative(function() {{ return ['{locale}', 'en']; }}, 'get languages'),
-                    configurable: true, enumerable: true
-                }});
-
-                // Mock Intl.DateTimeFormat for timezone
-                const originalDateTimeFormat = Intl.DateTimeFormat;
-                Intl.DateTimeFormat = makeNative(function(locales, options) {{
-                    const opts = options || {{}};
-                    if (!opts.timeZone) opts.timeZone = '{timezone}';
-                    const formatter = new originalDateTimeFormat(locales || '{locale}', opts);
-                    const origResolved = formatter.resolvedOptions.bind(formatter);
-                    formatter.resolvedOptions = makeNative(function() {{
-                        const result = origResolved();
-                        result.timeZone = '{timezone}';
-                        result.locale = '{locale}';
-                        return result;
-                    }}, 'resolvedOptions');
-                    return formatter;
-                }}, 'DateTimeFormat');
-                Intl.DateTimeFormat.prototype = originalDateTimeFormat.prototype;
-                Intl.DateTimeFormat.supportedLocalesOf = originalDateTimeFormat.supportedLocalesOf;
-
-                // ========== 8. WINDOW.CHROME (complete) ==========
-                if (!window.chrome) {{
-                    Object.defineProperty(window, 'chrome', {{
-                        writable: true, enumerable: true, configurable: false, value: {{}}
-                    }});
-                }}
-                if (!window.chrome.runtime) {{
-                    Object.defineProperty(window.chrome, 'runtime', {{
-                        writable: true, enumerable: true, configurable: false, value: {{}}
-                    }});
-                }}
-                if (!window.chrome.runtime.connect) {{
-                    Object.defineProperty(window.chrome.runtime, 'connect', {{
-                        configurable: false, enumerable: true, writable: true,
-                        value: makeNative(function() {{
-                            return {{
-                                name: '',
-                                onDisconnect: {{ addListener: function(){{}}, removeListener: function(){{}}, hasListener: function(){{}}, hasListeners: function(){{}}, dispatch: function(){{}} }},
-                                onMessage: {{ addListener: function(){{}}, removeListener: function(){{}}, hasListener: function(){{}}, hasListeners: function(){{}}, dispatch: function(){{}} }},
-                                postMessage: function(){{}},
-                                disconnect: function(){{}}
-                            }};
-                        }}, 'connect')
-                    }});
-                }}
-                if (!window.chrome.runtime.sendMessage) {{
-                    Object.defineProperty(window.chrome.runtime, 'sendMessage', {{
-                        configurable: false, enumerable: true, writable: true,
-                        value: makeNative(function() {{ return; }}, 'sendMessage')
-                    }});
-                }}
-                if (!window.chrome.csi) {{
-                    Object.defineProperty(window.chrome, 'csi', {{
-                        configurable: false, enumerable: true, writable: true,
-                        value: makeNative(function() {{
-                            return {{ startE: Date.now(), onloadT: Date.now(), pageT: Date.now(), tran: 15 }};
-                        }}, 'csi')
-                    }});
-                }}
-                if (!window.chrome.loadTimes) {{
-                    Object.defineProperty(window.chrome, 'loadTimes', {{
-                        configurable: false, enumerable: true, writable: true,
-                        value: makeNative(function() {{
-                            return {{
-                                requestTime: Date.now() / 1000, startLoadTime: Date.now() / 1000,
-                                commitLoadTime: Date.now() / 1000, finishDocumentLoadTime: Date.now() / 1000,
-                                finishLoadTime: Date.now() / 1000, firstPaintTime: Date.now() / 1000,
-                                firstPaintAfterLoadTime: 0, navigationType: "Other",
-                                wasFetchedViaSpdy: false, wasNpnNegotiated: false,
-                                npnNegotiatedProtocol: "", wasAlternateProtocolAvailable: false,
-                                connectionInfo: "http/1.1"
-                            }};
-                        }}, 'loadTimes')
-                    }});
-                }}
-                if (!window.chrome.app) {{
-                    Object.defineProperty(window.chrome, 'app', {{
-                        configurable: false, enumerable: true, writable: true,
-                        value: {{
-                            isInstalled: false,
-                            InstallState: {{ DISABLED: 'disabled', INSTALLED: 'installed', NOT_INSTALLED: 'not_installed' }},
-                            RunningState: {{ CANNOT_RUN: 'cannot_run', READY_TO_RUN: 'ready_to_run', RUNNING: 'running' }},
-                            getIsInstalled: makeNative(function() {{ return false; }}, 'getIsInstalled'),
-                            getDetails: makeNative(function() {{ return null; }}, 'getDetails')
+                    // 6. CDP MARKER CLEANUP (once)
+                    for (const p of Object.getOwnPropertyNames(window)) {{
+                        if (/^cdc_|^\$cdc_|^__webdriver|^__selenium|^__driver/.test(p)) {{
+                            try {{ delete window[p]; }} catch(e) {{}}
                         }}
-                    }});
-                }}
-                if (!window.chrome.webstore) {{
-                    Object.defineProperty(window.chrome, 'webstore', {{
-                        configurable: false, enumerable: true, writable: true,
-                        value: {{ onInstallStageChanged: {{}}, onDownloadProgress: {{}} }}
-                    }});
-                }}
+                    }}
 
-                // ========== 9. PLUGINS ==========
-                const makePlugin = (name, filename, description) => {{
-                    const plugin = Object.create(Plugin.prototype);
-                    Object.defineProperties(plugin, {{
-                        name: {{ value: name, enumerable: true }},
-                        filename: {{ value: filename, enumerable: true }},
-                        description: {{ value: description, enumerable: true }},
-                        length: {{ value: 1, enumerable: true }},
-                        0: {{ value: {{ type: 'application/pdf', suffixes: 'pdf', description }}, enumerable: true }}
-                    }});
-                    return plugin;
-                }};
-                const fakePlugins = Object.create(PluginArray.prototype);
-                const pluginList = [
-                    makePlugin('PDF Viewer', 'internal-pdf-viewer', 'Portable Document Format'),
-                    makePlugin('Chrome PDF Viewer', 'internal-pdf-viewer', 'Portable Document Format'),
-                    makePlugin('Chromium PDF Viewer', 'internal-pdf-viewer', 'Portable Document Format'),
-                    makePlugin('Microsoft Edge PDF Viewer', 'internal-pdf-viewer', 'Portable Document Format'),
-                    makePlugin('WebKit built-in PDF', 'internal-pdf-viewer', 'Portable Document Format')
-                ];
-                pluginList.forEach((p, i) => {{
-                    Object.defineProperty(fakePlugins, i, {{ value: p, enumerable: true }});
-                }});
-                Object.defineProperty(fakePlugins, 'length', {{ value: pluginList.length, enumerable: true }});
-                Object.defineProperty(fakePlugins, 'item', {{ 
-                    value: makeNative(function(index) {{ return this[index] || null; }}, 'item'),
-                    enumerable: false
-                }});
-                Object.defineProperty(fakePlugins, 'namedItem', {{ 
-                    value: makeNative(function(name) {{ 
-                        for (let i = 0; i < this.length; i++) if (this[i].name === name) return this[i];
-                        return null;
-                    }}, 'namedItem'),
-                    enumerable: false
-                }});
-                Object.defineProperty(fakePlugins, 'refresh', {{ 
-                    value: makeNative(function() {{}}, 'refresh'),
-                    enumerable: false 
-                }});
-                Object.defineProperty(fakePlugins, Symbol.iterator, {{
-                    value: function* () {{ for (let i = 0; i < this.length; i++) yield this[i]; }},
-                    enumerable: false
-                }});
-                Object.defineProperty(navProto, 'plugins', {{ 
-                    get: makeNative(function() {{ return fakePlugins; }}, 'get plugins'),
-                    configurable: true, enumerable: true
-                }});
-
-                // ========== 10. PERMISSIONS ==========
-                try {{
-                    const originalQuery = window.navigator.permissions.query;
-                    Object.defineProperty(window.navigator.permissions.__proto__, 'query', {{
-                        value: makeNative(function(parameters) {{
-                            return parameters.name === 'notifications'
-                                ? Promise.resolve({{ state: Notification.permission }})
-                                : originalQuery.call(this, parameters);
-                        }}, 'query'),
-                        writable: true, configurable: true
-                    }});
                 }} catch(e) {{}}
-
-                // NOTE: Iframe protection (MutationObserver/createElement hooks) REMOVED
-                // These were causing Turnstile detection (Error 600010)
-
             }})();
-        "#,
-            ua = self.user_agent(),
+            "#,
             platform = self.os.platform(),
             cores = self.cpu_cores,
             memory = self.memory_gb,
-            dpr = self.device_pixel_ratio,
-            screen_w = self.screen_width,
-            screen_h = self.screen_height,
             webgl_vendor = self.gpu.vendor(),
             webgl_renderer = self.gpu.renderer(),
-            chrome_ver = self.chrome_version,
-            hints_platform = self.os.hints_platform(),
-            locale = self.locale,
-            timezone = self.timezone,
         )
     }
 }
