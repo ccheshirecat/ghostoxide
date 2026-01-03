@@ -632,50 +632,59 @@ impl ChaserProfile {
                 // ========== 11. IFRAME PROTECTION (PASSIVE - MutationObserver) ==========
                 // Do NOT hook document.createElement - it crashes Turnstile (Error 600010)
                 // Use MutationObserver to passively detect new iframes without touching native APIs
-                const iframeObserver = new MutationObserver((mutations) => {{
-                    for (const mutation of mutations) {{
-                        for (const node of mutation.addedNodes) {{
-                            if (node.tagName === 'IFRAME') {{
-                                // Safety: Ignore Cloudflare/Turnstile frames entirely
-                                try {{
-                                    if (node.src && (
-                                        node.src.includes('cloudflare.com') || 
-                                        node.src.includes('turnstile')
-                                    )) {{
-                                        continue; 
-                                    }}
-                                }} catch(e) {{ continue; }}
+                const setupIframeObserver = () => {{
+                    const iframeObserver = new MutationObserver((mutations) => {{
+                        for (const mutation of mutations) {{
+                            for (const node of mutation.addedNodes) {{
+                                if (node.tagName === 'IFRAME') {{
+                                    // Safety: Ignore Cloudflare/Turnstile frames entirely
+                                    try {{
+                                        if (node.src && (
+                                            node.src.includes('cloudflare.com') || 
+                                            node.src.includes('turnstile')
+                                        )) {{
+                                            continue; 
+                                        }}
+                                    }} catch(e) {{ continue; }}
 
-                                // Inject Chrome object into same-origin frames
-                                try {{
-                                    if (node.contentWindow && !node.contentWindow.chrome) {{
-                                        node.contentWindow.chrome = window.chrome;
-                                    }}
-                                    
-                                    // Also catch late loaders
-                                    node.addEventListener('load', () => {{
-                                        try {{
-                                            if (node.src && (
-                                                node.src.includes('cloudflare.com') || 
-                                                node.src.includes('turnstile')
-                                            )) return;
-                                            
-                                            if (node.contentWindow && !node.contentWindow.chrome) {{
-                                                node.contentWindow.chrome = window.chrome;
-                                            }}
-                                        }} catch(e) {{}}
-                                    }});
-                                }} catch(e) {{}}
+                                    // Inject Chrome object into same-origin frames
+                                    try {{
+                                        if (node.contentWindow && !node.contentWindow.chrome) {{
+                                            node.contentWindow.chrome = window.chrome;
+                                        }}
+                                        
+                                        // Also catch late loaders
+                                        node.addEventListener('load', () => {{
+                                            try {{
+                                                if (node.src && (
+                                                    node.src.includes('cloudflare.com') || 
+                                                    node.src.includes('turnstile')
+                                                )) return;
+                                                
+                                                if (node.contentWindow && !node.contentWindow.chrome) {{
+                                                    node.contentWindow.chrome = window.chrome;
+                                                }}
+                                            }} catch(e) {{}}
+                                        }});
+                                    }} catch(e) {{}}
+                                }}
                             }}
                         }}
-                    }}
-                }});
+                    }});
+                    
+                    // Start observing
+                    iframeObserver.observe(document.documentElement || document.body || document, {{
+                        childList: true,
+                        subtree: true
+                    }});
+                }};
                 
-                // Start observing (passive, doesn't modify native APIs)
-                iframeObserver.observe(document.documentElement, {{
-                    childList: true,
-                    subtree: true
-                }});
+                // Wait for DOM to be ready
+                if (document.documentElement) {{
+                    setupIframeObserver();
+                }} else {{
+                    document.addEventListener('DOMContentLoaded', setupIframeObserver);
+                }}
 
             }})();
         "#,
